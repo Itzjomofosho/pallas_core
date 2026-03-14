@@ -60,7 +60,23 @@ function SpellWrapper:IsReady()
     return not cd.on_cooldown and cd.enabled
 end
 
-function SpellWrapper:IsUsable() return self:IsReady() end
+function SpellWrapper:IsUsable()
+    if self.Id == 0 or not self.IsKnown then return false end
+    if game.is_usable_spell then
+        local ok, usable, nomana = pcall(game.is_usable_spell, self.Id)
+        if ok and usable ~= nil then return usable end
+    end
+    return self:IsReady()
+end
+
+function SpellWrapper:NoMana()
+    if self.Id == 0 then return false end
+    if game.is_usable_spell then
+        local ok, usable, nomana = pcall(game.is_usable_spell, self.Id)
+        if ok and nomana ~= nil then return nomana end
+    end
+    return false
+end
 
 function SpellWrapper:GetCooldown()
     if self.Id == 0 then return nil end
