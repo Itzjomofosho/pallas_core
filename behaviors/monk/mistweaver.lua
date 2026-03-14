@@ -24,7 +24,7 @@ local function DoCombat()
     return
   end
 
-  if not Me:IsAutoAttacking() and Spell.AutoAttack:CastEx(target) then
+  if not Me:IsAutoAttacking() and Me:StartAttack(target) then
     return
   end
 
