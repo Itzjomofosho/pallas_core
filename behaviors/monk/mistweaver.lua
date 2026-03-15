@@ -15,16 +15,16 @@ local function DoCombat()
     return
   end
 
-  -- Check if damage is enabled
-  if not PallasSettings.MistweaverDoDamage then
-    return
-  end
-
   if not Me:InMeleeRange(target) then
     return
   end
 
   if not Me:IsAutoAttacking() and Me:StartAttack(target) then
+    return
+  end
+
+  -- Check if damage is enabled
+  if not PallasSettings.MistweaverDoDamage then
     return
   end
 
@@ -62,7 +62,7 @@ local function DoHeal()
     return
   end
 
-  if lowest.HealthPct < 90 and Spell.SoothingMist:CastEx(lowest) then
+  if lowest.HealthPct < 90 and Spell.SoothingMist:CastEx(lowest, false, true) then
     return
   end
 end

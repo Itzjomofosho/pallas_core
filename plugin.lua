@@ -192,6 +192,9 @@ local function initialize()
   print("[Pallas] Core initialized")
 end
 
+-- ── ImGui key constants ───────────────────────────────────────────
+local ImGuiKey_Insert = 521
+
 -- ── Plugin lifecycle ────────────────────────────────────────────
 
 function Plugin.onEnable()
@@ -214,6 +217,13 @@ function Plugin.onTick()
   if not initialized then
     initialize()
     if not initialized then return end
+  end
+
+  -- Check for Insert key press to toggle Pallas window
+  if imgui.is_key_pressed(ImGuiKey_Insert) then
+    if Menu then
+      Menu.Open = not Menu.Open
+    end
   end
 
   if not PallasSettings.PallasEnabled then return end
