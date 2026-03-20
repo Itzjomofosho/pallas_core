@@ -30,6 +30,10 @@ local function DoCombat()
     return
   end
 
+  if Me.HealthPct < 80 and Spell.ChiWave:CastEx(target) then
+    return
+  end
+
   if not target:HasAura("Breath of Fire") and target:HasAura("Dizzying Haze") and Spell.BreathOfFire:CastEx(target) then
     return
   end
