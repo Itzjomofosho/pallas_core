@@ -50,12 +50,12 @@ local function classify_entity(entity, quest_creatures)
         return "quest"
     end
 
-    local reaction = game.unit_reaction(entity.obj_ptr)
-    if not reaction then return nil end
+    if game.unit_is_enemy(entity.obj_ptr) then return "hostile" end
 
-    if reaction <= 3 then return "hostile" end
+    local reaction = game.unit_reaction(entity.obj_ptr)
     if reaction == 4 then return "neutral" end
-    if reaction >= 5 then return "friendly" end
+
+    if game.unit_is_friend(entity.obj_ptr) then return "friendly" end
 
     return nil
 end
@@ -127,42 +127,43 @@ function Plugin.onDraw()
         return
     end
 
+    local dirty = false
     local changed, val
 
     changed, val = imgui.checkbox("Enabled", cfg.enabled)
-    if changed then cfg.enabled = val end
+    if changed then cfg.enabled = val; dirty = true end
 
     imgui.separator()
     imgui.text("Entity Types")
 
     changed, val = imgui.checkbox("Hostile", cfg.show_hostile)
-    if changed then cfg.show_hostile = val end
+    if changed then cfg.show_hostile = val; dirty = true end
 
     changed, val = imgui.checkbox("Neutral", cfg.show_neutral)
-    if changed then cfg.show_neutral = val end
+    if changed then cfg.show_neutral = val; dirty = true end
 
     changed, val = imgui.checkbox("Friendly", cfg.show_friendly)
-    if changed then cfg.show_friendly = val end
+    if changed then cfg.show_friendly = val; dirty = true end
 
     changed, val = imgui.checkbox("Players", cfg.show_players)
-    if changed then cfg.show_players = val end
+    if changed then cfg.show_players = val; dirty = true end
 
     changed, val = imgui.checkbox("Rares", cfg.show_rares)
-    if changed then cfg.show_rares = val end
+    if changed then cfg.show_rares = val; dirty = true end
 
     changed, val = imgui.checkbox("Quest Mobs", cfg.show_quest)
-    if changed then cfg.show_quest = val end
+    if changed then cfg.show_quest = val; dirty = true end
 
     imgui.separator()
     imgui.text("Settings")
 
     changed, val = imgui.slider_int("Max Range", cfg.max_range, 1, 100)
-    if changed then cfg.max_range = val end
+    if changed then cfg.max_range = val; dirty = true end
 
     changed, val = imgui.slider_int("Max Highlights", cfg.max_highlights, 1, 5)
-    if changed then cfg.max_highlights = val end
+    if changed then cfg.max_highlights = val; dirty = true end
 
-    settings.save("chams", cfg)
+    if dirty then settings.save("chams", cfg) end
 
     imgui.end_window()
 end
