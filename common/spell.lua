@@ -222,6 +222,8 @@ function SpellWrapper:CastEx(target, skipusable, skipfacing)
     return false
   end
 
+  
+
   if not skipusable then
     local ok, usable = pcall(game.is_usable_spell, self.Id)
     if ok and not usable then
@@ -236,6 +238,14 @@ function SpellWrapper:CastEx(target, skipusable, skipfacing)
   local cok, cd = pcall(game.spell_cooldown, self.Id)
   if cok and cd and cd.on_cooldown then
     return false
+  end
+
+  -- Moving check: if spell has cast time and player is moving, return false
+  if Me and Me:IsMoving() then
+    local iok, info = pcall(game.get_spell_info, self.Id)
+    if iok and info and info.cast_time and info.cast_time > 0 then
+      return false
+    end
   end
 
   -- Range check: skip if target is out of spell range.
