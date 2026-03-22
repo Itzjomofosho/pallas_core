@@ -108,6 +108,12 @@ local function load_modules()
   end
 
   include("common/spell.lua")
+
+  local PetMod = include("common/pet.lua")
+  if PetMod then
+    Pet = PetMod
+  end
+
   include("common/menu.lua")
 
   local ClassData = include("data/classes.lua")
@@ -250,6 +256,7 @@ function Plugin.onTick()
   last_tick = now
 
   Pallas._tick_throttled = false
+  Pallas._last_tick = now
 
   -- Refresh world state (OM read + player + target) - always update even when paused
   refresh_entities()
@@ -403,6 +410,9 @@ function Plugin.onDraw()
   if not Me then return end
   Menu:Draw()
   draw_esp()
+  if Pallas._behavior_draw then
+    pcall(Pallas._behavior_draw)
+  end
 end
 
 return Plugin

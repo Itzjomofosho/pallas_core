@@ -1,27 +1,33 @@
 -- ═══════════════════════════════════════════════════════════════════
 -- Blood Death Knight behavior (MoP 5.5.3)
 --
--- Works at any level: falls through unknown spells to baseline
--- abilities (Icy Touch, Plague Strike, Blood Strike, Death Coil).
+-- Priority-based rotation following the MoP Blood DK guide.
+-- Includes opener sequences, advanced Crimson Scourge handling,
+-- Vengeance-aware cooldown usage, and QoL toggles.
 --
--- Endgame Single-Target Priority:
---   1. Blood Presence (maintain)
---   2. Horn of Winter (maintain buff)
---   3. Diseases (Outbreak → Icy Touch + Plague Strike fallback)
---   4. Dancing Rune Weapon on CD
---   5. Bone Shield (maintain)
---   6. Crimson Scourge proc → Blood Boil / Death and Decay
---   7. Death Strike (primary heal/shield)
---   8. Soul Reaper (<35%) / Heart Strike / Blood Strike (Blood rune)
---   9. Death and Decay on CD
---  10. Rune Strike / Death Coil (Runic Power dump)
---  11. Empower Rune Weapon (rune starved)
---  12. Horn of Winter / Icy Touch (filler)
+-- Single-Target Priority:
+--   1. Death Strike (survivability + prevent rune capping)
+--   2. Maintain Frost Fever & Blood Plague via Outbreak
+--   3. Rune Strike if about to overcap on Runic Power
+--   4. Soul Reaper (<35%) / Heart Strike (Blood rune spender)
+--   5. Crimson Scourge proc → DnD (diseases >15s) or Blood Boil (<15s)
+--   6. Rune Strike (normal RP dump)
+--   7. Horn of Winter (filler)
 --
--- AoE (3+ enemies):
---   Death and Decay > diseases > Pestilence (spread) >
---   Blood Boil (replaces Heart/Blood Strike) > Death Strike >
---   Rune Strike / Death Coil > Horn of Winter
+-- AoE Priority (3+ enemies):
+--   1. Death and Decay
+--   2. Maintain diseases via Outbreak
+--   3. Spread diseases (Blood Boil w/ Roiling Blood / Pestilence)
+--   4. Blood Boil (Crimson Scourge proc)
+--   5. Blood Boil (Blood/Death rune spender)
+--   6. Death Strike (survivability)
+--   7. Rune Strike (RP dump)
+--   8. Horn of Winter (filler)
+--
+-- Opener Modes:
+--   General:        DRW immediately → diseases → normal priority
+--   AoE:            DnD → DRW → diseases → AoE priority
+--   Damage Focused: DS → HS → DRW (delayed ~3 GCDs for Vengeance)
 --
 -- Defensives: Vampiric Blood, Icebound Fortitude, Anti-Magic Shell,
 --   Rune Tap, Death Pact
@@ -29,7 +35,6 @@
 
 -- ── Menu options ────────────────────────────────────────────────
 
--- Check a per-spell toggle.  nil (not yet set) → true (enabled by default).
 local function S(uid)
   return PallasSettings[uid] ~= false
 end
@@ -37,101 +42,170 @@ end
 local options = {
   Name = "Death Knight (Blood)",
   Widgets = {
+    { type = "text",     text = "=== Opener ===" },
+    { type = "combobox", uid = "BloodOpenerMode",
+      text = "Opener mode",                default = 1,
+      options = { "Disabled", "General", "AoE", "Damage Focused" } },
+    { type = "slider",   uid = "BloodOpenerDuration",
+      text = "Opener phase (sec)",         default = 15, min = 5, max = 30 },
+
     { type = "text",     text = "=== Rotation Spells ===" },
     { type = "checkbox", uid = "BloodUseOutbreak",
-      text = "Outbreak",                default = true },
+      text = "Outbreak",                   default = true },
     { type = "checkbox", uid = "BloodUseIcyTouch",
-      text = "Icy Touch",              default = true },
+      text = "Icy Touch",                 default = true },
     { type = "checkbox", uid = "BloodUsePlagueStrike",
-      text = "Plague Strike",           default = true },
+      text = "Plague Strike",              default = true },
     { type = "checkbox", uid = "BloodUseDeathStrike",
-      text = "Death Strike",            default = true },
+      text = "Death Strike",               default = true },
+    { type = "checkbox", uid = "BloodUseDeathSiphon",
+      text = "Death Siphon (high Vengeance trade)", default = false },
     { type = "checkbox", uid = "BloodUseSoulReaper",
-      text = "Soul Reaper (<35%)",      default = true },
+      text = "Soul Reaper",                default = true },
+    { type = "slider",   uid = "BloodSoulReaperThreshold",
+      text = "Soul Reaper HP %",           default = 35, min = 10, max = 50 },
     { type = "checkbox", uid = "BloodUseHeartStrike",
-      text = "Heart Strike",            default = true },
+      text = "Heart Strike",               default = true },
     { type = "checkbox", uid = "BloodUseBloodStrike",
-      text = "Blood Strike",            default = true },
+      text = "Blood Strike (low level)",   default = true },
     { type = "checkbox", uid = "BloodUseBoneShield",
-      text = "Bone Shield",             default = true },
+      text = "Bone Shield",                default = true },
     { type = "checkbox", uid = "BloodUseDnD",
-      text = "Death and Decay",         default = true },
+      text = "Death and Decay",            default = true },
     { type = "checkbox", uid = "BloodUseBloodBoil",
-      text = "Blood Boil",              default = true },
+      text = "Blood Boil",                 default = true },
     { type = "checkbox", uid = "BloodUsePestilence",
-      text = "Pestilence (AoE spread)", default = true },
+      text = "Pestilence (AoE spread)",    default = true },
     { type = "checkbox", uid = "BloodUseRuneStrike",
-      text = "Rune Strike",             default = true },
+      text = "Rune Strike",                default = true },
     { type = "checkbox", uid = "BloodUseDeathCoil",
-      text = "Death Coil",              default = true },
+      text = "Death Coil",                 default = true },
+    { type = "checkbox", uid = "BloodPreferDeathCoil",
+      text = "Prefer Death Coil over Rune Strike (high Vengeance)",
+      default = false },
     { type = "checkbox", uid = "BloodUseHoWFiller",
-      text = "Horn of Winter (filler)",  default = true },
+      text = "Horn of Winter (filler)",    default = true },
 
     { type = "text",     text = "=== Cooldowns ===" },
     { type = "checkbox", uid = "BloodUseDRW",
-      text = "Use Dancing Rune Weapon",  default = true },
+      text = "Dancing Rune Weapon",        default = true },
+    { type = "checkbox", uid = "BloodDRWHoldForVengeance",
+      text = "Hold DRW for Vengeance",     default = false },
+    { type = "checkbox", uid = "BloodUseRaiseDead",
+      text = "Raise Dead (DPS cooldown)",  default = true },
     { type = "checkbox", uid = "BloodUseERW",
-      text = "Use Empower Rune Weapon (no runes)", default = true },
+      text = "Empower Rune Weapon",        default = true },
+    { type = "checkbox", uid = "BloodERWSyncDRW",
+      text = "Sync ERW with DRW window",   default = false },
 
     { type = "text",     text = "=== Defensives ===" },
     { type = "checkbox", uid = "BloodUseVampiricBlood",
-      text = "Use Vampiric Blood",       default = true },
+      text = "Vampiric Blood",             default = true },
     { type = "slider",   uid = "BloodVBThreshold",
-      text = "Vampiric Blood HP %",      default = 50, min = 20, max = 80 },
+      text = "Vampiric Blood HP %",        default = 50, min = 20, max = 80 },
     { type = "checkbox", uid = "BloodUseIBF",
-      text = "Use Icebound Fortitude",   default = true },
+      text = "Icebound Fortitude",         default = true },
     { type = "slider",   uid = "BloodIBFThreshold",
-      text = "IBF HP %",                 default = 35, min = 15, max = 60 },
+      text = "IBF HP %",                   default = 35, min = 15, max = 60 },
     { type = "checkbox", uid = "BloodUseAMS",
-      text = "Use Anti-Magic Shell",     default = false },
+      text = "Anti-Magic Shell",           default = false },
     { type = "checkbox", uid = "BloodUseRuneTap",
-      text = "Use Rune Tap",             default = true },
+      text = "Rune Tap",                   default = true },
     { type = "slider",   uid = "BloodRuneTapThreshold",
-      text = "Rune Tap HP %",            default = 60, min = 20, max = 80 },
+      text = "Rune Tap HP %",              default = 60, min = 20, max = 80 },
     { type = "checkbox", uid = "BloodUseDeathPact",
-      text = "Use Death Pact (sacrifice ghoul)", default = false },
+      text = "Death Pact (sacrifice ghoul)", default = false },
     { type = "slider",   uid = "BloodDeathPactThreshold",
-      text = "Death Pact HP %",          default = 25, min = 10, max = 50 },
+      text = "Death Pact HP %",            default = 25, min = 10, max = 50 },
 
     { type = "text",     text = "=== Interrupts ===" },
     { type = "checkbox", uid = "BloodUseInterrupt",
-      text = "Use Mind Freeze",             default = true },
+      text = "Mind Freeze",                default = true },
     { type = "combobox", uid = "BloodInterruptMode",
-      text = "Interrupt mode",              default = 0,
+      text = "Interrupt mode",             default = 0,
       options = { "Any interruptible", "Whitelist only" } },
 
     { type = "text",     text = "=== Utility ===" },
     { type = "checkbox", uid = "BloodMaintainHoW",
-      text = "Maintain Horn of Winter",  default = true },
+      text = "Maintain Horn of Winter",    default = true },
     { type = "checkbox", uid = "BloodMaintainPresence",
-      text = "Auto Blood Presence",      default = true },
+      text = "Auto Blood Presence",        default = true },
+    { type = "checkbox", uid = "BloodMaintainBoneShieldOOC",
+      text = "Bone Shield out of combat",  default = true },
 
     { type = "text",     text = "=== AoE ===" },
     { type = "checkbox", uid = "BloodAoeEnabled",
-      text = "Use AoE rotation (3+ enemies)", default = true },
+      text = "Use AoE rotation",           default = true },
     { type = "slider",   uid = "BloodAoeThreshold",
-      text = "AoE enemy count",          default = 3, min = 2, max = 8 },
+      text = "AoE enemy count",            default = 3, min = 2, max = 8 },
 
     { type = "text",     text = "=== Runic Power ===" },
+    { type = "slider",   uid = "BloodRPOvercapThreshold",
+      text = "RP overcap prevention at",   default = 90, min = 60, max = 120 },
     { type = "slider",   uid = "BloodRSThreshold",
-      text = "Rune Strike above RP",     default = 80, min = 30, max = 110 },
+      text = "RP normal dump above",       default = 60, min = 30, max = 110 },
+
+    { type = "text",     text = "=== Advanced ===" },
+    { type = "slider",   uid = "BloodDiseaseRefreshSec",
+      text = "Disease refresh timer (sec)", default = 4, min = 2, max = 10 },
+    { type = "slider",   uid = "BloodCSDiseaseSec",
+      text = "Crimson Scourge DnD vs BB cutoff (sec)", default = 15, min = 5, max = 25 },
   },
 }
 
 -- ── Constants ──────────────────────────────────────────────────
 
 local AOE_RANGE = 10
--- Spell IDs to interrupt in "Whitelist only" mode.
--- Empty = interrupt everything interruptible.  Add IDs to restrict, e.g.:
---   local INTERRUPT_WHITELIST = { 12345, 67890 }
 local INTERRUPT_WHITELIST = {}
+
+-- ── Self-buff cast helper ────────────────────────────────────────
+-- Some self-buff spells (DRW, Bone Shield, ERW, etc.) fail when cast via
+-- cast_spell_at_unit because the game rejects a friendly target for them.
+-- This helper uses game.cast_spell (no target) and mirrors CastEx logic.
+
+local RESULT_SUCCESS    = 0
+local RESULT_THROTTLED  = 9
+local RESULT_NOT_READY  = 10
+local RESULT_ON_CD      = 11
+local RESULT_QUEUED     = 12
+
+local function CastNoTarget(spell)
+  if not spell.IsKnown or spell.Id == 0 then return false end
+  if Pallas._tick_throttled then return false end
+  local now = os.clock()
+  if now < (spell._fail_until or 0) or now < (spell._cast_until or 0) then
+    return false
+  end
+  local uok, usable = pcall(game.is_usable_spell, spell.Id)
+  if uok and not usable then return false end
+  local cok, cd = pcall(game.spell_cooldown, spell.Id)
+  if cok and cd and cd.on_cooldown then return false end
+
+  local ok, c, desc = pcall(game.cast_spell, spell.Id)
+  local code = ok and c or -1
+  if code == RESULT_SUCCESS or code == RESULT_QUEUED then
+    Pallas._last_cast      = spell.Name
+    Pallas._last_cast_time = now
+    Pallas._last_cast_tgt  = "self"
+    Pallas._last_cast_code = code
+    Pallas._last_cast_desc = ok and (desc or "") or ""
+    spell._cast_until = now + 0.2
+    return true
+  elseif code == RESULT_THROTTLED or code == RESULT_NOT_READY or code == RESULT_ON_CD then
+    Pallas._tick_throttled = true
+  elseif code >= 0 then
+    spell._fail_until      = now + 1.0
+    Pallas._last_fail      = spell.Name
+    Pallas._last_fail_time = now
+    Pallas._last_fail_code = code
+    Pallas._last_fail_desc = ok and (desc or "") or ""
+  end
+  return false
+end
 
 -- ── Tank Targeting (priority-based, no player target required) ─
 
-local MELEE_BASE = 5.0 -- 5yd from bounding box edge
-
--- Bbox radius cache: keyed by obj_ptr, only calls game.entity_bounds once per mob.
--- Cleared when leaving combat so stale pointers don't persist.
+local MELEE_BASE = 5.0
 local bbox_cache = {}
 
 local function GetBboxRadius(obj_ptr)
@@ -143,8 +217,6 @@ local function GetBboxRadius(obj_ptr)
   return r
 end
 
---- Collect all valid in-combat enemies from the entity cache.
---- Returns a list sorted by dist_sq (nearest first).
 local function GetCombatEnemies()
   local entities = Pallas._entity_cache or {}
   if not Me or not Me.Position then return {} end
@@ -161,12 +233,16 @@ local function GetCombatEnemies()
     if eu.health and eu.health <= 0 then goto skip end
     if not eu.in_combat then goto skip end
 
+    -- Filter out friendly units (pets, guardians, allies)
+    local a_ok, attackable = pcall(game.unit_is_attackable, e.obj_ptr)
+    if a_ok and not attackable then goto skip end
+
     if e.position then
       local dx = mx - e.position.x
       local dy = my - e.position.y
       local dz = mz - e.position.z
       local dist_sq = dx * dx + dy * dy + dz * dz
-      if dist_sq <= 1600 then -- 40yd max
+      if dist_sq <= 1600 then
         local u = Unit:New(e)
         results[#results + 1] = {
           unit = u,
@@ -182,8 +258,6 @@ local function GetCombatEnemies()
   return results
 end
 
---- Get the best target within a given yard range (center-to-center).
---- Prefers the player's current target if valid and in range, otherwise nearest.
 local function GetTargetInRange(enemies, range_yd)
   local range_sq = range_yd * range_yd
   local tgt_guid = Me.Target and not Me.Target.IsDead and Me.Target.Guid or nil
@@ -196,13 +270,11 @@ local function GetTargetInRange(enemies, range_yd)
   return best
 end
 
---- Get the best MELEE target using cached bbox radius.
---- melee range = 5yd + target's model half-width (from OM snapshot, zero-cost).
 local function MeleeTarget(enemies)
   local tgt_guid = Me.Target and not Me.Target.IsDead and Me.Target.Guid or nil
   local best = nil
   for _, entry in ipairs(enemies) do
-    if entry.dist_sq > 225 then break end -- 15yd² hard cap
+    if entry.dist_sq > 225 then break end
     local range = MELEE_BASE + entry.radius
     if entry.dist_sq <= range * range then
       if tgt_guid and entry.unit.Guid == tgt_guid then return entry.unit end
@@ -216,7 +288,6 @@ local function AoeTarget(enemies)    return GetTargetInRange(enemies, 10)  end
 local function RangedTarget(enemies) return GetTargetInRange(enemies, 30)  end
 local function AnyTarget(enemies)    return GetTargetInRange(enemies, 40)  end
 
---- Count enemies within a given range of the player.
 local function EnemiesInRange(enemies, range_yd)
   local range_sq = range_yd * range_yd
   local count = 0
@@ -229,17 +300,13 @@ end
 
 -- ── Interrupt ─────────────────────────────────────────────────
 
-local mf_range_sq = nil -- cached Mind Freeze max range², resolved once
+local mf_range_sq = nil
 
---- Scan enemies for interruptible casts.  Uses cached spell range and
---- pre-computed distances — no game function calls in the hot loop except
---- one unit_casting_info for the current target.
 local function TryInterrupt(enemies)
   if not PallasSettings.BloodUseInterrupt then return false end
   if not Spell.MindFreeze.IsKnown then return false end
   if not Spell.MindFreeze:IsReady() then return false end
 
-  -- Resolve Mind Freeze range once via spell data
   if not mf_range_sq then
     local ok, info = pcall(game.get_spell_info, Spell.MindFreeze.Id)
     if ok and info then
@@ -306,32 +373,53 @@ local function TryInterrupt(enemies)
   return false
 end
 
--- ── Helpers ────────────────────────────────────────────────────
+-- ── Disease Helpers ──────────────────────────────────────────────
 
 local function has_diseases(target)
   return target:HasAura("Frost Fever") and target:HasAura("Blood Plague")
 end
 
-local function diseases_expiring(target)
+local function diseases_expiring(target, threshold)
+  threshold = threshold or 4
   local ff = target:GetAura("Frost Fever")
   local bp = target:GetAura("Blood Plague")
   if not ff or not bp then return true end
-  local ff_rem = ff.remaining or 0
-  local bp_rem = bp.remaining or 0
-  return ff_rem < 4 or bp_rem < 4
+  return (ff.remaining or 0) < threshold or (bp.remaining or 0) < threshold
 end
 
---- Apply diseases: Outbreak if known, otherwise Icy Touch + Plague Strike.
---- Picks the right target per ability range.
+local function min_disease_remaining(target)
+  local ff = target:GetAura("Frost Fever")
+  local bp = target:GetAura("Blood Plague")
+  local ff_rem = ff and ff.remaining or 0
+  local bp_rem = bp and bp.remaining or 0
+  if ff_rem <= 0 and bp_rem <= 0 then return 0 end
+  if ff_rem <= 0 then return bp_rem end
+  if bp_rem <= 0 then return ff_rem end
+  return math.min(ff_rem, bp_rem)
+end
+
+--- Apply or refresh diseases. During DRW, always refresh via Outbreak
+--- for the double disease application snapshot.
 local function ApplyDiseases(enemies)
   local melee = MeleeTarget(enemies)
   local ranged = RangedTarget(enemies)
   local target = melee or ranged
   if not target then return false end
-  if has_diseases(target) then return false end
 
-  if S("BloodUseOutbreak") and ranged and not has_diseases(ranged) then
-    if Spell.Outbreak:CastEx(ranged) then return true end
+  local refresh_sec = PallasSettings.BloodDiseaseRefreshSec or 4
+  local in_drw = Me:HasAura("Dancing Rune Weapon")
+
+  -- During DRW, always try to refresh diseases with Outbreak for double snapshot
+  local needs_refresh = not has_diseases(target)
+      or diseases_expiring(target, refresh_sec)
+      or in_drw
+
+  if not needs_refresh then return false end
+
+  if S("BloodUseOutbreak") and ranged then
+    if not has_diseases(ranged) or diseases_expiring(ranged, refresh_sec) or in_drw then
+      if Spell.Outbreak:CastEx(ranged) then return true end
+    end
   end
 
   if S("BloodUseIcyTouch") and ranged and not ranged:HasAura("Frost Fever") then
@@ -345,15 +433,24 @@ local function ApplyDiseases(enemies)
   return false
 end
 
---- Spend Runic Power: Rune Strike (melee) if known, else Death Coil (ranged).
-local function SpendRP(enemies)
-  local threshold = PallasSettings.BloodRSThreshold or 80
-  if Me.Power < threshold then return false end
+-- ── Runic Power Spending ────────────────────────────────────────
 
+--- Spend RP with configurable priority (Rune Strike vs Death Coil).
+--- Death Coil trades efficiency (40 RP vs 30 RP) for better AP scaling
+--- at high Vengeance, and works at range.
+local function SpendRP(enemies, threshold)
+  if Me.Power < threshold then return false end
   local melee = MeleeTarget(enemies)
-  if S("BloodUseRuneStrike") and melee and Spell.RuneStrike:CastEx(melee) then return true end
   local ranged = RangedTarget(enemies)
-  if S("BloodUseDeathCoil") and ranged and Spell.DeathCoil:CastEx(ranged) then return true end
+
+  if PallasSettings.BloodPreferDeathCoil then
+    if S("BloodUseDeathCoil") and ranged and Spell.DeathCoil:CastEx(ranged) then return true end
+    if S("BloodUseRuneStrike") and melee and Spell.RuneStrike:CastEx(melee) then return true end
+  else
+    if S("BloodUseRuneStrike") and melee and Spell.RuneStrike:CastEx(melee) then return true end
+    if S("BloodUseDeathCoil") and ranged and Spell.DeathCoil:CastEx(ranged) then return true end
+  end
+
   return false
 end
 
@@ -363,23 +460,70 @@ local function UseDefensives()
   local hp = Me.HealthPct
 
   if PallasSettings.BloodUseVampiricBlood and hp < (PallasSettings.BloodVBThreshold or 50) then
-    if Spell.VampiricBlood:CastEx(Me) then return true end
+    if CastNoTarget(Spell.VampiricBlood) then return true end
   end
 
   if PallasSettings.BloodUseRuneTap and hp < (PallasSettings.BloodRuneTapThreshold or 60) then
-    if Spell.RuneTap:CastEx(Me) then return true end
+    if CastNoTarget(Spell.RuneTap) then return true end
   end
 
   if PallasSettings.BloodUseIBF and hp < (PallasSettings.BloodIBFThreshold or 35) then
-    if Spell.IceboundFortitude:CastEx(Me) then return true end
+    if CastNoTarget(Spell.IceboundFortitude) then return true end
   end
 
   if PallasSettings.BloodUseAMS then
-    if Spell.AntiMagicShell:CastEx(Me) then return true end
+    if CastNoTarget(Spell.AntiMagicShell) then return true end
   end
 
   if PallasSettings.BloodUseDeathPact and hp < (PallasSettings.BloodDeathPactThreshold or 25) then
-    if Spell.DeathPact:CastEx(Me) then return true end
+    if CastNoTarget(Spell.DeathPact) then return true end
+  end
+
+  return false
+end
+
+-- ── Opener & Cooldown State ─────────────────────────────────────
+
+local combat_enter_time = 0
+local opener_done = false
+
+--- Manage offensive cooldowns: DRW, Raise Dead, ERW.
+--- Opener mode affects DRW timing during the first few seconds of combat.
+local function UseCooldowns(enemies, combat_elapsed)
+  -- Dancing Rune Weapon
+  if S("BloodUseDRW") then
+    local should_drw = true
+    local opener_mode = PallasSettings.BloodOpenerMode or 0
+
+    -- Damage Focused opener: delay DRW for ~3 GCDs to build Vengeance first
+    if not opener_done and opener_mode == 3 then
+      should_drw = combat_elapsed >= 4.5
+    end
+
+    -- Outside opener: optionally hold DRW until we have Vengeance
+    if opener_done and PallasSettings.BloodDRWHoldForVengeance then
+      if not Me:HasAura("Vengeance") then should_drw = false end
+    end
+
+    if should_drw and CastNoTarget(Spell.DancingRuneWeapon) then return true end
+  end
+
+  -- Raise Dead (DPS cooldown, also provides Death Pact option)
+  if S("BloodUseRaiseDead") and not Pet.HasPetOfFamily(Pet.FAMILY_GHOUL) then
+    if CastNoTarget(Spell.RaiseDead) then return true end
+  end
+
+  -- Empower Rune Weapon: sync with DRW window or use as emergency rune refresh
+  if S("BloodUseERW") then
+    if PallasSettings.BloodERWSyncDRW then
+      if Me:HasAura("Dancing Rune Weapon") then
+        if CastNoTarget(Spell.EmpowerRuneWeapon) then return true end
+      end
+    else
+      if not Spell.DeathStrike:IsUsable() and not Spell.HeartStrike:IsUsable() then
+        if CastNoTarget(Spell.EmpowerRuneWeapon) then return true end
+      end
+    end
   end
 
   return false
@@ -391,66 +535,58 @@ local function SingleTarget(enemies)
   local melee  = MeleeTarget(enemies)
   local ranged = RangedTarget(enemies)
 
-  -- 1. Diseases (range-aware: Outbreak/Icy Touch at 30yd, Plague Strike melee)
+  -- 1. Death Strike — top priority rune spender.
+  --    Death Siphon trade: costs 1 Death Rune vs DS's 2 runes.
+  --    At high Vengeance, 2x Death Siphon outdamages 1x Death Strike.
+  --    Manual toggle since we can't read Attack Power breakpoints.
+  if S("BloodUseDeathStrike") and melee then
+    if S("BloodUseDeathSiphon") and Spell.DeathSiphon and Spell.DeathSiphon.IsKnown then
+      if Me:HasAura("Vengeance") then
+        if Spell.DeathSiphon:CastEx(melee) then return true end
+      end
+    end
+    if Spell.DeathStrike:CastEx(melee) then return true end
+  end
+
+  -- 2. Maintain Frost Fever & Blood Plague (Outbreak > IT + PS fallback)
   if ApplyDiseases(enemies) then return true end
 
-  -- 2. Dancing Rune Weapon on CD (self-cast)
-  if S("BloodUseDRW") then
-    if Spell.DancingRuneWeapon:CastEx(Me) then return true end
-  end
+  -- 3. Rune Strike — prevent RP overcap (high threshold)
+  local overcap = PallasSettings.BloodRPOvercapThreshold or 90
+  if SpendRP(enemies, overcap) then return true end
 
-  -- 3. Bone Shield (self-cast)
-  if S("BloodUseBoneShield") and not Me:HasAura("Bone Shield") then
-    if Spell.BoneShield:CastEx(Me) then return true end
-  end
-
-  -- 4. Crimson Scourge proc (Blood Boil 10yd / DnD at target)
-  if Me:HasAura("Crimson Scourge") then
-    local aoe_tgt = AoeTarget(enemies)
-    if S("BloodUseBloodBoil") and aoe_tgt and diseases_expiring(aoe_tgt) then
-      if Spell.BloodBoil:CastEx(aoe_tgt) then return true end
-    elseif S("BloodUseDnD") and melee then
-      if Spell.DeathAndDecay:CastAtPos(melee) then return true end
-    end
-  end
-
-  -- 5. Death Strike (melee — primary heal + Blood Shield)
-  if S("BloodUseDeathStrike") and melee and Spell.DeathStrike:CastEx(melee) then return true end
-
-  -- 6. Soul Reaper (<35%), Heart Strike, Blood Strike (all melee)
+  -- 4. Soul Reaper / Heart Strike / Blood Strike (Blood rune spenders)
   if melee then
-    if S("BloodUseSoulReaper") and melee.HealthPct and melee.HealthPct > 0 and melee.HealthPct < 35 then
+    local sr_thresh = PallasSettings.BloodSoulReaperThreshold or 35
+    if S("BloodUseSoulReaper") and melee.HealthPct > 0 and melee.HealthPct < sr_thresh then
       if Spell.SoulReaper:CastEx(melee) then return true end
     end
     if S("BloodUseHeartStrike") and Spell.HeartStrike:CastEx(melee) then return true end
     if S("BloodUseBloodStrike") and Spell.BloodStrike:CastEx(melee) then return true end
   end
 
-  -- 7. Death and Decay (at nearest enemy)
-  if S("BloodUseDnD") and melee and Spell.DeathAndDecay:CastAtPos(melee) then return true end
-
-  -- 8. Blood Boil to refresh expiring diseases (10yd)
-  if S("BloodUseBloodBoil") then
-    local aoe_tgt = AoeTarget(enemies)
-    if aoe_tgt and diseases_expiring(aoe_tgt) then
-      if Spell.BloodBoil:CastEx(aoe_tgt) then return true end
+  -- 5. Crimson Scourge proc: DnD if diseases are healthy, Blood Boil if expiring.
+  --    DnD deals more damage; BB refreshes/spreads diseases via Roiling Blood.
+  if Me:HasAura("Crimson Scourge") then
+    local cs_target = melee or AoeTarget(enemies)
+    if cs_target then
+      local cs_cutoff = PallasSettings.BloodCSDiseaseSec or 15
+      if min_disease_remaining(cs_target) > cs_cutoff then
+        if S("BloodUseDnD") and Spell.DeathAndDecay:CastAtPos(cs_target) then return true end
+        if S("BloodUseBloodBoil") and Spell.BloodBoil:CastEx(cs_target) then return true end
+      else
+        if S("BloodUseBloodBoil") and Spell.BloodBoil:CastEx(cs_target) then return true end
+        if S("BloodUseDnD") and Spell.DeathAndDecay:CastAtPos(cs_target) then return true end
+      end
     end
   end
 
-  -- 9. Runic Power dump (Rune Strike melee / Death Coil 30yd)
-  if SpendRP(enemies) then return true end
+  -- 6. Rune Strike — normal RP dump (lower threshold)
+  local dump = PallasSettings.BloodRSThreshold or 60
+  if SpendRP(enemies, dump) then return true end
 
-  -- 10. Empower Rune Weapon (self-cast, rune + RP starved)
-  if S("BloodUseERW") and Me.Power < 40 then
-    if Spell.EmpowerRuneWeapon:CastEx(Me) then return true end
-  end
-
-  -- 11. Horn of Winter (self-cast filler)
-  if S("BloodUseHoWFiller") and Spell.HornOfWinter:CastEx(Me) then return true end
-
-  -- 12. Ranged fillers on any valid target
-  if S("BloodUseIcyTouch") and ranged and Spell.IcyTouch:CastEx(ranged) then return true end
-  if S("BloodUsePlagueStrike") and melee and Spell.PlagueStrike:CastEx(melee) then return true end
+  -- 7. Horn of Winter — filler (generates Runic Power)
+  if S("BloodUseHoWFiller") and CastNoTarget(Spell.HornOfWinter) then return true end
 
   return false
 end
@@ -462,48 +598,46 @@ local function AoERotation(enemies)
   local aoe_tgt = AoeTarget(enemies)
   local ranged  = RangedTarget(enemies)
 
-  -- 1. Death and Decay (at melee clump)
+  -- 1. Death and Decay (highest AoE priority)
   if S("BloodUseDnD") and melee and Spell.DeathAndDecay:CastAtPos(melee) then return true end
 
-  -- 2. Diseases (range-aware)
+  -- 2. Maintain diseases via Outbreak
   if ApplyDiseases(enemies) then return true end
 
-  -- 3. Pestilence to spread diseases (melee)
+  -- 3. Spread diseases: Pestilence (or Blood Boil with Roiling Blood)
   if S("BloodUsePestilence") and melee and has_diseases(melee) then
     if Spell.Pestilence:CastEx(melee) then return true end
   end
 
-  -- 4. Bone Shield (self-cast)
-  if S("BloodUseBoneShield") and not Me:HasAura("Bone Shield") then
-    if Spell.BoneShield:CastEx(Me) then return true end
-  end
-
-  -- 5. Crimson Scourge proc (Blood Boil 10yd)
+  -- 4. Blood Boil on Crimson Scourge proc (free, no rune cost)
   if S("BloodUseBloodBoil") and Me:HasAura("Crimson Scourge") and aoe_tgt then
     if Spell.BloodBoil:CastEx(aoe_tgt) then return true end
   end
 
-  -- 6. Blood Boil (10yd — replaces Heart/Blood Strike in AoE)
+  -- 5. Blood Boil (main AoE rune spender — replaces Heart Strike)
   if S("BloodUseBloodBoil") and aoe_tgt and Spell.BloodBoil:CastEx(aoe_tgt) then return true end
 
-  -- 7. Death Strike (melee — self-sustain)
-  if S("BloodUseDeathStrike") and melee and Spell.DeathStrike:CastEx(melee) then return true end
-
-  -- 8. Blood Strike (melee fallback when Blood Boil not known)
-  if S("BloodUseBloodStrike") and melee and Spell.BloodStrike:CastEx(melee) then return true end
-
-  -- 9. RP dump (melee Rune Strike / ranged Death Coil)
-  if SpendRP(enemies) then return true end
-
-  -- 10. Empower Rune Weapon (self-cast)
-  if S("BloodUseERW") and Me.Power < 40 then
-    if Spell.EmpowerRuneWeapon:CastEx(Me) then return true end
+  -- 6. Death Strike (survivability, lower priority in AoE)
+  if S("BloodUseDeathStrike") and melee then
+    if S("BloodUseDeathSiphon") and Spell.DeathSiphon and Spell.DeathSiphon.IsKnown then
+      if Me:HasAura("Vengeance") then
+        if Spell.DeathSiphon:CastEx(melee) then return true end
+      end
+    end
+    if Spell.DeathStrike:CastEx(melee) then return true end
   end
 
-  -- 11. Fillers
-  if S("BloodUseHoWFiller") and Spell.HornOfWinter:CastEx(Me) then return true end
-  if S("BloodUseIcyTouch") and ranged and Spell.IcyTouch:CastEx(ranged) then return true end
-  if S("BloodUsePlagueStrike") and melee and Spell.PlagueStrike:CastEx(melee) then return true end
+  -- 7. Blood Strike (low-level fallback)
+  if S("BloodUseBloodStrike") and melee and Spell.BloodStrike:CastEx(melee) then return true end
+
+  -- 8. RP dump: overcap prevention then normal dump
+  local overcap = PallasSettings.BloodRPOvercapThreshold or 90
+  if SpendRP(enemies, overcap) then return true end
+  local dump = PallasSettings.BloodRSThreshold or 60
+  if SpendRP(enemies, dump) then return true end
+
+  -- 9. Horn of Winter — filler
+  if S("BloodUseHoWFiller") and CastNoTarget(Spell.HornOfWinter) then return true end
 
   return false
 end
@@ -513,46 +647,82 @@ end
 local was_in_combat = false
 
 local function BloodDKCombat()
+  -- Out of combat maintenance
   if not Me.InCombat then
-    if was_in_combat then bbox_cache = {}; was_in_combat = false end
+    if was_in_combat then
+      bbox_cache = {}
+      was_in_combat = false
+      opener_done = false
+      combat_enter_time = 0
+    end
+
+    -- Bone Shield out of combat (30s+ before pull per guide)
+    if PallasSettings.BloodMaintainBoneShieldOOC then
+      if S("BloodUseBoneShield") and not Me:HasAura("Bone Shield") then
+        if not Me.IsCasting and not Me.IsChanneling then
+          CastNoTarget(Spell.BoneShield)
+        end
+      end
+    end
+
     return
   end
-  was_in_combat = true
+
+  -- Track combat entry for opener phase
+  if not was_in_combat then
+    was_in_combat = true
+    combat_enter_time = os.clock()
+    opener_done = false
+  end
 
   if Me.IsCasting or Me.IsChanneling then return end
-
-  -- GCD gate: if the global cooldown is rolling, nothing can cast anyway.
-  -- One cheap spell_cooldown call instead of 15+ is_usable_spell calls.
   if Spell:IsGCDActive() then return end
 
-  -- Self-buffs — no target needed but only in combat
+  local combat_elapsed = os.clock() - combat_enter_time
+  local opener_duration = PallasSettings.BloodOpenerDuration or 15
+  if combat_elapsed > opener_duration then opener_done = true end
+
+  -- Self-buffs
   if PallasSettings.BloodMaintainPresence then
     if not Me:HasAura("Blood Presence") then
-      if Spell.BloodPresence:CastEx(Me) then return end
+      if CastNoTarget(Spell.BloodPresence) then return end
     end
   end
 
   if PallasSettings.BloodMaintainHoW then
     if not Me:HasAura("Horn of Winter") then
-      if Spell.HornOfWinter:CastEx(Me) then return end
+      if CastNoTarget(Spell.HornOfWinter) then return end
     end
   end
 
-  -- Defensives
+  -- Defensives (highest combat priority)
   if UseDefensives() then return end
 
-  -- Tank targeting: build sorted enemy list (nearest first)
   local enemies = GetCombatEnemies()
   if #enemies == 0 then return end
 
-  -- Interrupts (highest priority after defensives)
+  -- Interrupts
   if TryInterrupt(enemies) then return end
 
-  -- Determine AoE based on enemies within Blood Boil range (10yd)
+  -- Bone Shield maintenance (should always be active)
+  if S("BloodUseBoneShield") and not Me:HasAura("Bone Shield") then
+    if CastNoTarget(Spell.BoneShield) then return end
+  end
+
+  -- Offensive cooldowns (DRW, Raise Dead, ERW)
+  if UseCooldowns(enemies, combat_elapsed) then return end
+
+  -- Determine rotation: AoE vs Single-Target
   local use_aoe = false
   if PallasSettings.BloodAoeEnabled then
     local nearby = EnemiesInRange(enemies, AOE_RANGE)
     use_aoe = nearby >= (PallasSettings.BloodAoeThreshold or 3)
+  end
+
+  -- AoE opener mode forces AoE rotation during opener phase
+  local opener_mode = PallasSettings.BloodOpenerMode or 0
+  if not opener_done and opener_mode == 2 then
+    use_aoe = true
   end
 
   if use_aoe then
@@ -561,9 +731,6 @@ local function BloodDKCombat()
     SingleTarget(enemies)
   end
 
-  -- If nothing in the rotation could cast, suppress further attempts this tick.
-  -- Without this, resource-starved ticks fall through all 15+ spells calling
-  -- is_usable_spell on each one — 300+ game calls/sec for no benefit.
   Pallas._tick_throttled = true
 end
 
