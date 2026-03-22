@@ -438,6 +438,45 @@ function Unit:isUnitInCombatWithParty(unit)
   return false
 end
 
+-- Get all attackable monsters within specified range of this unit
+function Unit:getUnitsAroundUnit(range)
+  local units = {}
+  if not range or range <= 0 then
+    return units
+  end
+  
+  -- Loop through entity cache similar to Combat:CollectTargets()
+  local entities = Pallas and Pallas._entity_cache or {}
+  
+  for _, e in ipairs(entities) do
+    local cls = e.class
+    if cls ~= "Unit" and cls ~= "Player" then goto skip end
+    
+    local eu = e.unit
+    if not eu then goto skip end
+    if eu.is_dead then goto skip end
+    if eu.health and eu.health <= 0 then goto skip end
+    
+    -- Check if unit is attackable
+    if not game.unit_can_attack(e.obj_ptr) then goto skip end
+    
+    -- Skip self
+    if e.guid == self.Guid then goto skip end
+    
+    -- Create Unit wrapper and check distance
+    local unit = Unit:New(e)
+    if unit and unit:IsAttackable() and not unit:DeadOrGhost() then
+      if self:GetDistance(unit) <= range then
+        units[#units + 1] = unit
+      end
+    end
+    
+    ::skip::
+  end
+  
+  return units
+end
+
 -- Alias used by Pallas-style code: unit.Target (property, not method).
 -- Set by the refresh loop on Me only.
 Unit.Target = nil
