@@ -51,7 +51,7 @@ local function DoRotation()
         return
     end
 
-    if not Me:HasAura("Lightning Shield") and Spell.LightningShield:CastEx(Me) then
+    if not Me:HasAura("Water Shield") and Spell.WaterShield:CastEx(Me) then
         return
     end
 
