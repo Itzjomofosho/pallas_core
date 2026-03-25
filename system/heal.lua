@@ -20,7 +20,7 @@ end
 function Heal:Reset()
   self.PriorityList = {}
   self.HealTargets  = {}
-  self.Friends = {
+  self.Friends      = {
     Tanks   = {},
     DPS     = {},
     Healers = {},
@@ -48,14 +48,19 @@ function Heal:CollectTargets()
 
     local eu = e.unit
     if not eu then goto skip end
-    if eu.is_dead then goto skip end
+
+    -- Check if unit is dead or ghost using game API
+    local dead_ok, is_dead_or_ghost = pcall(game.unit_dead_or_ghost, e.obj_ptr)
+    if dead_ok and is_dead_or_ghost then goto skip end
+
+    if eu.health and eu.health < 1 then goto skip end
 
     -- 40yd range pre-filter
     if mx and e.position then
       local dx = mx - e.position.x
       local dy = my - e.position.y
       local dz = mz - e.position.z
-      if dx*dx + dy*dy + dz*dz > 1600 then goto skip end
+      if dx * dx + dy * dy + dz * dz > 1600 then goto skip end
     end
 
     self.HealTargets[#self.HealTargets + 1] = Unit:New(e)
@@ -98,9 +103,15 @@ function Heal:WeighFilter()
     local member = members_set[u.guid_lo]
     if not member and not is_me then goto continue end
 
-    if u:IsTank()   then priority = priority + 20; is_tank = true end
-    if u:IsHealer() then priority = priority + 10; is_heal = true end
-    if u:IsDPS()    then priority = priority + 5;  is_dps  = true end
+    if u:IsTank() then
+      priority = priority + 20; is_tank = true
+    end
+    if u:IsHealer() then
+      priority = priority + 10; is_heal = true
+    end
+    if u:IsDPS() then
+      priority = priority + 5; is_dps = true
+    end
 
     priority = priority + (100 - u.HealthPct)
     priority = priority - ((100 - Me.PowerPct) * (mana_multi / 100))
