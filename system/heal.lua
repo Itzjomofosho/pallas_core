@@ -95,8 +95,9 @@ function Heal:WeighFilter()
     local priority = 0
     local is_tank, is_dps, is_heal = false, false, false
 
+    local is_me = Me and u.Guid == Me.Guid
     local member = members_set[u.guid_lo]
-    if not member and u.Guid ~= (Me and Me.Guid or "") then goto continue end
+    if not member and not is_me then goto continue end
 
     if u:IsTank()   then priority = priority + 20; is_tank = true end
     if u:IsHealer() then priority = priority + 10; is_heal = true end
@@ -105,7 +106,7 @@ function Heal:WeighFilter()
     priority = priority + (100 - u.HealthPct)
     priority = priority - ((100 - Me.PowerPct) * (mana_multi / 100))
 
-    if priority > 0 or u.InCombat then
+    if priority > 0 or u.InCombat or is_me then
       self.PriorityList[#self.PriorityList + 1] = { Unit = u, Priority = priority }
     end
 
