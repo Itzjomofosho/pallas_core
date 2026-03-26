@@ -17,7 +17,7 @@ local function DoCombat()
 		return
 	end
 
-	if Me.HealthPct < 20 and Combat.Get and Spell.FortifyingBrew:CastEx(Me) then
+	if Me.HealthPct < 20 and Spell.FortifyingBrew:CastEx(Me) then
 		return
 	end
 
