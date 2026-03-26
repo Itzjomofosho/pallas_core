@@ -135,9 +135,7 @@ function Heal:WeighFilter()
     priority = priority + (100 - u.HealthPct)
     priority = priority - ((100 - Me.PowerPct) * (mana_multi / 100))
 
-    if priority > 0 or u.InCombat or is_me then
-      self.PriorityList[#self.PriorityList + 1] = { Unit = u, Priority = priority }
-    end
+    self.PriorityList[#self.PriorityList + 1] = { Unit = u, Priority = priority }
 
     ::continue::
   end

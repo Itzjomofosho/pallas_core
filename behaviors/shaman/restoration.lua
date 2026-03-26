@@ -2,21 +2,21 @@ local options = {
     Name = "Shaman (Restoration)", -- shown as collapsing header
 
     Widgets = {
-        { type = "header", text = "General" },
-        { type = "slider", uid = "RestoShamanDPSAboveHP", text = "DPS Above Health %", default = 80, min = 0, max = 100 },
+        { type = "header",   text = "General" },
+        { type = "slider",   uid = "RestoShamanDPSAboveHP",        text = "DPS Above Health %", default = 80,  min = 0,                                         max = 100 },
 
-        { type = "header", text = "Single Target Healing" },
-        { type = "slider", uid = "RestoShamanHealingSurge", text = "Healing Surge %", default = 65, min = 0, max = 100 },
-        { type = "slider", uid = "RestoShamanHealingWave", text = "Healing Wave %", default = 80, min = 0, max = 100 },
-        { type = "slider", uid = "RestoShamanRiptide", text = "Riptide %", default = 90, min = 0, max = 100 },
+        { type = "header",   text = "Single Target Healing" },
+        { type = "slider",   uid = "RestoShamanHealingSurge",      text = "Healing Surge %",    default = 65,  min = 0,                                         max = 100 },
+        { type = "slider",   uid = "RestoShamanHealingWave",       text = "Healing Wave %",     default = 80,  min = 0,                                         max = 100 },
+        { type = "slider",   uid = "RestoShamanRiptide",           text = "Riptide %",          default = 90,  min = 0,                                         max = 100 },
 
-        { type = "header", text = "AoE Healing" },
+        { type = "header",   text = "AoE Healing" },
 
-        { type = "header", text = "Utility" },
-        { type = "combobox", uid = "RestoShamanEarthShieldTarget", text = "Earth Shield", default = 0, options = { "Tank 1", "Tank 2", "Off" } },
-        { type = "checkbox", uid = "RestoShamanPurifySpirit", text = "Purify Spirit", default = true },
-        { type = "combobox", uid = "RestoShamanWeaponImbue", text = "Weapon Imbue", default = 0, options = { "Flametongue", "Earthliving" } },
-        { type = "combobox", uid = "RestoShamanShieldBuff", text = "Shield Buff", default = 0, options = { "Water Shield", "Lightning Shield" } },
+        { type = "header",   text = "Utility" },
+        { type = "combobox", uid = "RestoShamanEarthShieldTarget", text = "Earth Shield",       default = 0,   options = { "Tank 1", "Tank 2", "Off" } },
+        { type = "checkbox", uid = "RestoShamanPurifySpirit",      text = "Purify Spirit",      default = true },
+        { type = "combobox", uid = "RestoShamanWeaponImbue",       text = "Weapon Imbue",       default = 0,   options = { "Flametongue", "Earthliving" } },
+        { type = "combobox", uid = "RestoShamanShieldBuff",        text = "Shield Buff",        default = 0,   options = { "Water Shield", "Lightning Shield" } },
     },
 }
 
@@ -61,7 +61,7 @@ local function DoRotation()
 
     -- Utility
     local es_choice = PallasSettings.RestoShamanEarthShieldTarget or 0
-    if es_choice ~= 2 then -- not "Off"
+    if es_choice ~= 2 then                             -- not "Off"
         local tank = Heal.Friends.Tanks[es_choice + 1] -- 0=Tank1, 1=Tank2
         if tank and not tank:HasAura("Earth Shield") and Spell.EarthShield:CastEx(tank) then
             return
@@ -72,6 +72,12 @@ local function DoRotation()
         if Spell.PurifySpirit:Dispel(true, { DispelType.Magic, DispelType.Curse }) then
             return
         end
+    end
+
+    -- Resurrect current target if dead
+    local myTarget = Me.Target
+    if myTarget and myTarget.IsDead and myTarget.isPlayer and Spell.AncestralSpirit:CastEx(myTarget) then
+        return
     end
 
     -- Damage (only when healing is comfortable)
@@ -109,12 +115,19 @@ local function DoRotation()
         return
     end
 
-    if Spell.EarthShock:CastEx(target) then
+    if Combat:GetTargetsAround(target, 12) >= 2 and Spell.ChainLightning:CastEx(target) then
         return
     end
 
-    if Combat:GetTargetsAround(target, 12) >= 2 and Spell.ChainLightning:CastEx(target) then
+    -- Flame Shock spread: best target first, then other combat targets
+    if not target:HasAura("Flame Shock") and Spell.FlameShock:CastEx(target) then
         return
+    end
+
+    for _, u in ipairs(Combat.Targets or {}) do
+        if u.Guid ~= target.Guid and not u:HasAura("Flame Shock") and Spell.FlameShock:CastEx(u) then
+            return
+        end
     end
 
     if Spell.LightningBolt:CastEx(target, { skipMoving = true }) then
