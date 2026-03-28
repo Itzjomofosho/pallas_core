@@ -11,6 +11,8 @@ local options = {
         { type = "slider",   uid = "RestoShamanRiptide",           text = "Riptide %",                       default = 90,  min = 0,                                         max = 100 },
 
         { type = "header",   text = "AoE Healing" },
+        { type = "slider",   uid = "RestoShamanChainHealCount",    text = "Chain Heal - Nearby Members",     default = 3,   min = 1,                                         max = 5 },
+        { type = "slider",   uid = "RestoShamanChainHealHealth",   text = "Chain Heal - Health %",           default = 75,  min = 0,                                         max = 100 },
         { type = "slider",   uid = "RestoShamanHSTCount",          text = "Healing Stream Totem - Members",  default = 3,   min = 1,                                         max = 5 },
         { type = "slider",   uid = "RestoShamanHSTHealth",         text = "Healing Stream Totem - Health %", default = 80,  min = 0,                                         max = 100 },
 
@@ -21,6 +23,27 @@ local options = {
         { type = "combobox", uid = "RestoShamanShieldBuff",        text = "Shield Buff",                     default = 0,   options = { "Water Shield", "Lightning Shield" } },
     },
 }
+
+-- Find a player-owned summon entity by name substring (case-insensitive).
+-- Returns the raw entity table (with .position) or nil.
+local function find_my_summon(name_pattern)
+    local summons = Pet.GetAllSummons()
+    local lp = name_pattern:lower()
+    for _, s in ipairs(summons) do
+        local n = s.name
+        if n and n:lower():find(lp, 1, true) then return s end
+    end
+    return nil
+end
+
+-- Distance between two position tables {x, y, z}.
+local function pos_distance(a, b)
+    if not a or not b then return 999 end
+    local dx = a.x - b.x
+    local dy = a.y - b.y
+    local dz = a.z - b.z
+    return math.sqrt(dx*dx + dy*dy + dz*dz)
+end
 
 local function DoRotation()
     local lowest = Heal:GetLowestMember()
@@ -63,11 +86,44 @@ local function DoRotation()
     end
 
     -- AoE Healing
+    local ch_count = PallasSettings.RestoShamanChainHealCount or 3
+    local ch_health = PallasSettings.RestoShamanChainHealHealth or 75
+    local members_below_ch, _ = Heal:GetMembersBelow(ch_health)
+    if #members_below_ch >= ch_count then
+        for _, member in ipairs(members_below_ch) do
+            local nearby = Heal:GetMembersAround(member, 30, ch_health)
+            if nearby > ch_count and Spell.ChainHeal:CastEx(member, { skipFacing = true }) then
+                return
+            end
+        end
+    end
+
     local hst_count = PallasSettings.RestoShamanHSTCount or 3
     local hst_health = PallasSettings.RestoShamanHSTHealth or 80
     local _, members_below = Heal:GetMembersBelow(hst_health)
     if members_below >= hst_count and Spell.HealingStreamTotem:CastEx(Me, { skipFacing = true }) then
         return
+    end
+
+    -- Totemic Projection: relocate Healing Stream Totem to lowest member
+    -- if the totem is >30 yd from any healing target
+    if lowest then
+        local hst_entity = find_my_summon("Healing Stream Totem")
+        if hst_entity and hst_entity.position then
+            local too_far = true
+            local all_friends = Heal.Friends and Heal.Friends.All or {}
+            for _, f in ipairs(all_friends) do
+                if f.Position and pos_distance(hst_entity.position, f.Position) <= 30 then
+                    too_far = false
+                    break
+                end
+            end
+            if too_far and lowest.Position then
+                if Spell.TotemicProjection:CastAtPos(lowest) then
+                    return
+                end
+            end
+        end
     end
 
     -- Single Target Healing (continued)
@@ -137,6 +193,11 @@ local function DoRotation()
 
     local target = Combat.BestTarget
     if not target then
+        return
+    end
+
+    -- Magma Totem: big AoE packs (skip if already active)
+    if Combat:GetEnemiesWithinDistance(10) > 8 and not Pet.HasSummonNamed("Magma Totem") and Spell.MagmaTotem:CastEx(Me) then
         return
     end
 
