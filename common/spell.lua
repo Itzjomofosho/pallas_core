@@ -379,6 +379,76 @@ function SpellWrapper:CastAtPos(x_or_entity, y, z)
   end
 end
 
+--- Cast at a world position using the Lua-path (CastSpellByName internal path).
+--- This correctly handles two-phase targeting spells like traps with Trap
+--- Launcher, where the standard raycast-hook approach fails.
+---
+--- Accepts either raw coordinates or an entity/Unit with a Position field:
+---   Spell.SnakeTrap:CastAtPosLuaPath(target)          -- entity
+---   Spell.SnakeTrap:CastAtPosLuaPath(10.0, 20.0, 5.0) -- raw x, y, z
+function SpellWrapper:CastAtPosLuaPath(x_or_entity, y, z)
+  if self.Id == 0 or not self.IsKnown then
+    return false
+  end
+  if Pallas._tick_throttled then
+    return false
+  end
+
+  local now = os.clock()
+  if now < self._fail_until or now < self._cast_until then
+    return false
+  end
+
+  local uok, usable = pcall(game.is_usable_spell, self.Id)
+  if uok and not usable then
+    return false
+  end
+  local cok, cd = pcall(game.spell_cooldown, self.Id)
+  if cok and cd and cd.on_cooldown then
+    return false
+  end
+
+  local x
+  if type(x_or_entity) == "table" and x_or_entity.Position then
+    local pos = x_or_entity.Position
+    x, y, z = pos.x, pos.y, pos.z
+  else
+    x = x_or_entity
+  end
+
+  if not x or not y or not z then
+    return false
+  end
+
+  local ok, c, d = pcall(game.cast_at_pos_lua_path, self.Id, x, y, z)
+  local code = ok and c or -1
+  local desc = ok and (d or "") or tostring(c)
+
+  if code == RESULT_SUCCESS or code == RESULT_QUEUED then
+    Pallas._last_cast = self.Name
+    Pallas._last_cast_time = now
+    Pallas._last_cast_tgt = "ground"
+    Pallas._last_cast_code = code
+    Pallas._last_cast_desc = desc
+    self._fail_until = 0
+    self._cast_until = now + CAST_THROTTLE
+    return true
+  elseif code == RESULT_THROTTLED then
+    Pallas._tick_throttled = true
+    return false
+  elseif code == RESULT_NOT_READY or code == RESULT_ON_CD then
+    Pallas._tick_throttled = true
+    return false
+  else
+    self._fail_until = now + FAIL_BACKOFF
+    Pallas._last_fail = self.Name
+    Pallas._last_fail_time = now
+    Pallas._last_fail_code = code
+    Pallas._last_fail_desc = desc
+    return false
+  end
+end
+
 --- Dispel wrapper: scans friendly or enemy targets for dispellable auras.
 ---
 --- Friendly (remove harmful debuffs from allies):
