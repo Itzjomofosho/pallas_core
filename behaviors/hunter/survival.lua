@@ -2,22 +2,24 @@
 -- Survival Hunter behavior (MoP 5.5.3)
 --
 -- Single-Target Priority:
---   1. Maintain Aspect of the Hawk / Iron Hawk
---   2. Maintain Hunter's Mark
+--   1. Maintain Aspect of the Iron Hawk / Hawk (Pack OOC)
+--   2. Kill Shot (scan all targets ≤20%, fallback to main)
 --   3. Explosive Shot on CD
---   4. Glaive Toss on CD (talent)
---   5. Black Arrow on CD
---   6. A Murder of Crows on CD (talent)
---   7. Dire Beast on CD (talent)
---   8. Maintain Serpent Sting
---   9. Fervor at low focus (talent)
---  10. Kill Shot (execute <20%)
---  11. Arcane Shot at 55+ focus (or Thrill of the Hunt proc)
---  12. Cobra Shot (filler)
+--   4. Explosive Trap (at target pos, lua path — only if not moving)
+--   5. Glaive Toss on CD (talent)
+--   6. Black Arrow on CD
+--   7. A Murder of Crows (talent — prioritize ≤20%)
+--   8. Dire Beast on CD (talent)
+--   9. Maintain Serpent Sting
+--  10. Stampede on CD
+--  11. Rapid Fire on CD
+--  12. Rabid (pet) on CD
+--  13. Arcane Shot at 55+ focus (or Thrill of the Hunt proc)
+--  14. Cobra Shot (filler)
 --
 -- AoE (>2 enemies within 10yd of target):
---   Explosive Shot (Lock and Load) > Multi-Shot > Fervor >
---   Dire Beast > Kill Shot > Black Arrow > Glaive Toss >
+--   Explosive Trap > Explosive Shot (Lock and Load) > Multi-Shot >
+--   Fervor > Dire Beast > Kill Shot > Black Arrow > Glaive Toss >
 --   Cobra Shot
 -- ═══════════════════════════════════════════════════════════════════
 
@@ -113,21 +115,35 @@ local function SpreadSerpentSting(target)
   return false
 end
 
+-- ── Aspect management (runs every tick, regardless of target/combat) ──
+
+local function SurvivalExtra()
+  if not PallasSettings.SVAutoAspects then return end
+
+  local anyone_in_combat = false
+  for _, v in ipairs(Heal.PriorityList or {}) do
+    if v.Unit and not v.Unit.IsDead and v.Unit.InCombat then
+      anyone_in_combat = true
+      break
+    end
+  end
+
+  if anyone_in_combat then
+    if not Me:HasAura("Aspect of the Iron Hawk") and not Me:HasAura("Aspect of the Hawk") then
+      if not Spell.AspectOfTheIronHawk:CastEx(Me) then
+        Spell.AspectOfTheHawk:CastEx(Me)
+      end
+    end
+  else
+    if not Me:HasAura("Aspect of the Pack") then
+      Spell.AspectOfThePack:CastEx(Me)
+    end
+  end
+end
+
 -- ── Main rotation ──────────────────────────────────────────────
 
 local function SurvivalCombat()
-  -- ── Aspect management (Iron Hawk in combat, Pack out of combat) ──
-  if PallasSettings.SVAutoAspects then
-    if Me.InCombat then
-      if not Me:HasAura("Aspect of the Iron Hawk") then
-        if Spell.AspectOfTheIronHawk:CastEx(Me) then return end
-      end
-    else
-      if not Me:HasAura("Aspect of the Pack") then
-        if Spell.AspectOfThePack:CastEx(Me) then return end
-      end
-    end
-  end
 
   local target = Combat.BestTarget
   if not target then return end
@@ -175,19 +191,14 @@ local function SurvivalCombat()
 
   -- ── Priority list (MoP 5.5.3 Survival) ────────────────────
 
-  -- 1. Maintain Hunter's Mark
-  if not target:HasAura("Hunter's Mark") then
-    if Spell.HuntersMark:CastEx(target) then return end
-  end
-
   if use_aoe then
     -- ── AoE priority ───────────────────────────────────────
 
-    -- Explosive Trap (ground-targeted AoE)
-    if Spell.ExplosiveTrap:CastAtPos(target) then return end
+    -- Explosive Trap (ground-targeted via lua path for Trap Launcher)
+    if Spell.ExplosiveTrap:CastAtPosLuaPath(target) then return end
 
     -- Explosive Shot (Lock and Load procs)
-    if Spell.ExplosiveShot:CastEx(target) then return end
+    if Me.Power >= 65 and Spell.ExplosiveShot:CastEx(target) then return end
 
     -- Multi-Shot as main AoE spender
     if Spell.Multishot:CastEx(target) then return end
@@ -198,7 +209,12 @@ local function SurvivalCombat()
     -- Dire Beast
     if Spell.DireBeast:CastEx(target) then return end
 
-    -- Kill Shot (execute)
+    -- Kill Shot (execute — prioritize ≤20% HP, fallback to main target)
+    for _, ks_target in ipairs(Combat.Targets) do
+      if not ks_target.IsDead and ks_target.HealthPct <= 20 then
+        if Spell.KillShot:CastEx(ks_target) then return end
+      end
+    end
     if Spell.KillShot:CastEx(target) then return end
 
     -- Black Arrow (still worth keeping up in AoE for L&L)
@@ -211,45 +227,60 @@ local function SurvivalCombat()
 
   -- ── Single-target priority ─────────────────────────────
 
-  -- 2. Explosive Shot (top priority — also consumes Lock and Load)
+  -- 2. Kill Shot (execute — prioritize ≤20% HP, fallback to main target)
+  for _, ks_target in ipairs(Combat.Targets) do
+    if not ks_target.IsDead and ks_target.HealthPct <= 20 then
+      if Spell.KillShot:CastEx(ks_target) then return end
+    end
+  end
+  if Spell.KillShot:CastEx(target) then return end
+
+  -- 3. Explosive Shot (also consumes Lock and Load)
   if Spell.ExplosiveShot:CastEx(target) then return end
 
-  -- 3. Glaive Toss (talent)
+  -- 4. Explosive Trap (only if target is stationary)
+  if not target:IsMoving() then
+    if Spell.ExplosiveTrap:CastAtPosLuaPath(target) then return end
+  end
+
+  -- 5. Glaive Toss (talent)
   if Spell.GlaiveToss:CastEx(target) then return end
 
-  -- 4. Black Arrow on CD
+  -- 6. Black Arrow on CD
   if Spell.BlackArrow:CastEx(target) then return end
 
-  -- 5. A Murder of Crows (talent)
+  -- 7. A Murder of Crows (talent — scan all targets for ≤20% HP, else main target)
+  for _, amoc_target in ipairs(Combat.Targets) do
+    if not amoc_target.IsDead and amoc_target.HealthPct <= 20 then
+      if Spell.AMurderOfCrows:CastEx(amoc_target) then return end
+    end
+  end
   if Spell.AMurderOfCrows:CastEx(target) then return end
 
-  -- 6. Dire Beast (talent)
+  -- 8. Dire Beast (talent)
   if Spell.DireBeast:CastEx(target) then return end
 
-  -- 7. Maintain Serpent Sting
+  -- 9. Maintain Serpent Sting
   if PallasSettings.SVSpreadSerpentSting then
     if SpreadSerpentSting(target) then return end
   elseif not target:HasAura("Serpent Sting") then
     if Spell.SerpentSting:CastEx(target) then return end
   end
 
-  -- 8. Stampede on CD
+  -- 10. Stampede on CD
   if PallasSettings.SVUseStampede then
     if Spell.Stampede:CastEx(Me) then return end
   end
 
-  -- 9. Rapid Fire on CD
+  -- 11. Rapid Fire on CD
   if PallasSettings.SVUseRapidFire then
     if Spell.RapidFire:CastEx(Me) then return end
   end
 
-  -- 10. Rabid (pet) on CD
+  -- 12. Rabid (pet) on CD
   if Spell.Rabid:CastEx(Me) then return end
 
-  -- 11. Kill Shot (execute <20%)
-  if Spell.KillShot:CastEx(target) then return end
-
-  -- 12. Arcane Shot at focus threshold (or Thrill of the Hunt proc)
+  -- 13. Arcane Shot at focus threshold (or Thrill of the Hunt proc)
   if Me:HasAura("Thrill of the Hunt") or Me.Power >= (PallasSettings.SVArcaneShotMinFocus or 55) then
     if Spell.ArcaneShot:CastEx(target) then return end
   end
@@ -262,6 +293,7 @@ end
 
 local behaviors = {
   [BehaviorType.Combat] = SurvivalCombat,
+  [BehaviorType.Extra]  = SurvivalExtra,
 }
 
 return { Options = options, Behaviors = behaviors }
