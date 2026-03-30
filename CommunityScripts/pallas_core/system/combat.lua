@@ -31,18 +31,7 @@ function Combat:WantToRun()
   if not Behavior:HasBehavior(BehaviorType.Combat) then return false end
   if not Me then return false end
   if Me.IsMounted then return false end
-  if PallasSettings.PallasAttackOOC or Me.InCombat then return true end
-
-  -- Also run if any group member is in combat (e.g. healer needs Combat.Targets
-  -- populated before personally entering combat)
-  local friends = Heal and Heal.Friends and Heal.Friends.All
-  if friends then
-    for _, ally in ipairs(friends) do
-      if ally.InCombat then return true end
-    end
-  end
-
-  return false
+  return PallasSettings.PallasAttackOOC or Me.InCombat
 end
 
 function Combat:CollectTargets()
@@ -107,6 +96,7 @@ function Combat:ExclusionFilter()
     if not u:IsAttackable() then goto skip_ex end
     if u:DeadOrGhost() or u.Health <= 1 then goto skip_ex end
     if Me:GetDistance(u) >= 40 then goto skip_ex end
+    if u:IsImmune() then goto skip_ex end
 
     -- Exempt current target when AttackOOC is enabled
     if u.Guid == my_tgt_guid and PallasSettings.PallasAttackOOC then
@@ -139,6 +129,7 @@ function Combat:InclusionFilter()
   end
 
   if not tgt:validTarget() then return end
+  if tgt:IsImmune() then return end
   self.Targets[#self.Targets + 1] = tgt
 end
 
