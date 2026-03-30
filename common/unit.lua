@@ -373,7 +373,8 @@ end
 
 --- Returns true if the unit has any dispellable debuff of the given type(s).
 --- @param types number|table  Single dispel_type int or array of ints
-function Unit:HasDispellableDebuff(types)
+--- @param whitelist table|nil  If provided, only match auras whose spell_id is in this set
+function Unit:HasDispellableDebuff(types, whitelist)
   if type(types) == "number" then types = { types } end
   local set = {}
   for _, t in ipairs(types) do set[t] = true end
@@ -385,7 +386,11 @@ function Unit:HasDispellableDebuff(types)
       if a.dispel_type and set[a.dispel_type] then
         local flags = a.flags or 0
         local harmful = math.floor(flags / 16) % 2 == 1
-        if harmful then return true end
+        if harmful then
+          if not whitelist or (a.spell_id and whitelist[a.spell_id]) then
+            return true
+          end
+        end
       end
     end
   end
@@ -439,7 +444,8 @@ end
 --- Returns true if the unit has any dispellable buff (helpful aura) of the given type(s).
 --- Used for offensive dispelling (purging enemy buffs).
 --- @param types number|table  Single dispel_type int or array of ints
-function Unit:HasDispellableBuff(types)
+--- @param whitelist table|nil  If provided, only match auras whose spell_id is in this set
+function Unit:HasDispellableBuff(types, whitelist)
   if type(types) == "number" then types = { types } end
   local set = {}
   for _, t in ipairs(types) do set[t] = true end
@@ -451,7 +457,11 @@ function Unit:HasDispellableBuff(types)
       if a.dispel_type and set[a.dispel_type] then
         local flags = a.flags or 0
         local helpful = math.floor(flags / 256) % 2 == 1
-        if helpful then return true end
+        if helpful then
+          if not whitelist or (a.spell_id and whitelist[a.spell_id]) then
+            return true
+          end
+        end
       end
     end
   end

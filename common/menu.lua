@@ -1,8 +1,8 @@
 -- ImGui menu system (mirrors Pallas common/menu.lua).
 --
 -- Builds a single "Pallas" window with:
---   • Global combat/spell options
---   • Per-behavior option submenus added via Menu:AddOptionMenu(options)
+--   * Status bar (class/spec, last cast, target)
+--   * Tabbed interface: Settings, Interrupts, Spec, per-behavior tabs
 --
 -- Widget descriptor format (same as Pallas):
 --   { type = "checkbox", uid = "UID", text = "Label", default = true }
@@ -59,7 +59,6 @@ local function draw_widget(w)
 
   if w.type == "header" then
     imgui.spacing()
-    imgui.separator()
     imgui.text_colored(0.4, 0.8, 1.0, 1.0, w.text or "")
     imgui.separator()
     return
@@ -99,10 +98,161 @@ local function draw_widget(w)
   end
 end
 
+-- ── Tab content helpers ─────────────────────────────────────────────
+
+local function draw_tab_settings()
+  imgui.text_colored(0.4, 0.8, 1.0, 1.0, "Core")
+  imgui.separator()
+
+  if PallasSettings.PallasEnabled == nil then PallasSettings.PallasEnabled = true end
+  local ch3, v3 = imgui.checkbox("Enabled##pallas_en", PallasSettings.PallasEnabled)
+  if ch3 then PallasSettings.PallasEnabled = v3 end
+
+  if PallasSettings.PallasESP == nil then PallasSettings.PallasESP = true end
+  local ch4, v4 = imgui.checkbox("Target ESP overlay##pallas_esp", PallasSettings.PallasESP)
+  if ch4 then PallasSettings.PallasESP = v4 end
+
+  if PallasSettings.PallasSpellDebug == nil then PallasSettings.PallasSpellDebug = false end
+  local chsd, vsd = imgui.checkbox("Spell Debug Window##pallas_spelldebug", PallasSettings.PallasSpellDebug)
+  if chsd then PallasSettings.PallasSpellDebug = vsd end
+
+  imgui.spacing()
+  imgui.text_colored(0.4, 0.8, 1.0, 1.0, "Combat")
+  imgui.separator()
+
+  if PallasSettings.PallasAutoTarget == nil then PallasSettings.PallasAutoTarget = false end
+  local ch1, v1 = imgui.checkbox("Auto-target##pallas", PallasSettings.PallasAutoTarget)
+  if ch1 then PallasSettings.PallasAutoTarget = v1 end
+
+  if PallasSettings.PallasAttackOOC == nil then PallasSettings.PallasAttackOOC = false end
+  local ch2, v2 = imgui.checkbox("Attack out of combat##pallas", PallasSettings.PallasAttackOOC)
+  if ch2 then PallasSettings.PallasAttackOOC = v2 end
+
+  if PallasSettings.PallasAttackTarget == nil then PallasSettings.PallasAttackTarget = true end
+  local ch5, v5 = imgui.checkbox("Always attack current target##pallas", PallasSettings.PallasAttackTarget)
+  if ch5 then PallasSettings.PallasAttackTarget = v5 end
+
+  imgui.spacing()
+  imgui.text_colored(0.4, 0.8, 1.0, 1.0, "Pause Key")
+  imgui.separator()
+
+  local current_key = PallasSettings.PallasPauseKey or 580
+  local key_name = ImGuiKeys.get_key_name(current_key)
+  imgui.text("Current: " .. key_name)
+  imgui.same_line(0, 12)
+
+  if imgui.button("Change##pause_key") then
+    Menu.CapturingKey = true
+    Menu.CaptureStartTime = os.clock()
+  end
+
+  if Menu.CapturingKey then
+    imgui.text_colored(1.0, 0.8, 0.2, 1.0, "Press any key... (ESC to cancel)")
+
+    if os.clock() - (Menu.CaptureStartTime or 0) > 5 then
+      Menu.CapturingKey = false
+    end
+
+    for _, key in ipairs(ImGuiKeys.COMMON_KEYS) do
+      if imgui.is_key_pressed(key) then
+        if key == 526 then -- ESC
+          Menu.CapturingKey = false
+        else
+          PallasSettings.PallasPauseKey = key
+          Menu.CapturingKey = false
+          print("[Pallas] Pause key set to: " .. ImGuiKeys.get_key_name(key))
+        end
+        break
+      end
+    end
+  end
+
+  -- ── Spec selector ───────────────────────────────────────────────
+  if Me and Me._spec_options then
+    imgui.spacing()
+    imgui.text_colored(0.4, 0.8, 1.0, 1.0, "Specialization")
+    imgui.separator()
+
+    if Me.SpecName and Me.SpecName ~= "" then
+      imgui.text_colored(0.3, 1.0, 0.4, 1.0, "Detected: " .. Me.SpecName)
+    end
+    local cur = PallasSettings.PallasSpecIdx or 0
+    local preview = Me._spec_options[cur + 1] or "(auto)"
+    if imgui.begin_combo("Spec##pallas_spec", preview) then
+      for i, name in ipairs(Me._spec_options) do
+        if imgui.selectable(name .. "##spec" .. i, (i - 1) == cur) then
+          PallasSettings.PallasSpecIdx = i - 1
+          PallasSettings.PallasSpecName = name
+        end
+      end
+      imgui.end_combo()
+    end
+  end
+end
+
+local function draw_tab_interrupts()
+  if PallasSettings.PallasInterruptMode == nil then PallasSettings.PallasInterruptMode = 0 end
+  local mode_options = { "All", "Whitelist", "None" }
+  local cur_mode = PallasSettings.PallasInterruptMode or 0
+  local preview = mode_options[cur_mode + 1] or "All"
+  if imgui.begin_combo("Mode##pallas_interrupt_mode", preview) then
+    for i, opt in ipairs(mode_options) do
+      local sel = (i - 1 == cur_mode)
+      if imgui.selectable(opt .. "##interrupt_mode" .. i, sel) then
+        PallasSettings.PallasInterruptMode = i - 1
+      end
+    end
+    imgui.end_combo()
+  end
+
+  imgui.spacing()
+
+  if PallasSettings.PallasInterruptTiming == nil then PallasSettings.PallasInterruptTiming = false end
+  local timing_changed, timing_val = imgui.checkbox("Advanced Timing##pallas_timing", PallasSettings.PallasInterruptTiming)
+  if timing_changed then PallasSettings.PallasInterruptTiming = timing_val end
+
+  if PallasSettings.PallasInterruptTiming then
+    if PallasSettings.PallasInterruptPercentage == nil then PallasSettings.PallasInterruptPercentage = 80 end
+    local pct_changed, pct_val = imgui.slider_int("Cast %##pallas_interrupt_pct", PallasSettings.PallasInterruptPercentage, 10, 95)
+    if pct_changed then PallasSettings.PallasInterruptPercentage = pct_val end
+    imgui.text_colored(0.5, 0.5, 0.5, 1.0,
+      "Interrupt at >=" .. (PallasSettings.PallasInterruptPercentage or 80) .. "% | Channels: immediately")
+  end
+end
+
+local function draw_tab_dispels()
+  if PallasSettings.PallasDispelMode == nil then PallasSettings.PallasDispelMode = 0 end
+  local mode_options = { "All", "Whitelist", "None" }
+  local cur_mode = PallasSettings.PallasDispelMode or 0
+  local preview = mode_options[cur_mode + 1] or "All"
+  if imgui.begin_combo("Mode##pallas_dispel_mode", preview) then
+    for i, opt in ipairs(mode_options) do
+      local sel = (i - 1 == cur_mode)
+      if imgui.selectable(opt .. "##dispel_mode" .. i, sel) then
+        PallasSettings.PallasDispelMode = i - 1
+      end
+    end
+    imgui.end_combo()
+  end
+
+  imgui.spacing()
+
+  if cur_mode == 0 then
+    imgui.text_colored(0.5, 0.5, 0.5, 1.0, "Dispels all removable debuffs/buffs")
+  elseif cur_mode == 1 then
+    imgui.text_colored(0.5, 0.5, 0.5, 1.0, "Only dispels auras listed in data/dispels.lua")
+  else
+    imgui.text_colored(0.5, 0.5, 0.5, 1.0, "Dispelling disabled globally")
+  end
+
+  imgui.spacing()
+  imgui.text_colored(0.5, 0.5, 0.5, 1.0, "Per-spec dispel toggles are in behavior tabs")
+end
+
 function Menu:Draw()
   if not self.Open then return end
 
-  imgui.set_next_window_size(320, 400, 4)
+  imgui.set_next_window_size(340, 420, 4)
   local visible, open = imgui.begin_window("Pallas", 0)
   if not visible then
     imgui.end_window()
@@ -110,7 +260,7 @@ function Menu:Draw()
   end
   if not open then self.Open = false end
 
-  -- Status bar
+  -- ── Status bar ──────────────────────────────────────────────────
   if Me then
     local class_name = Me.ClassName or Me._class_name or "Unknown"
     local spec_name  = Me.SpecName
@@ -118,7 +268,7 @@ function Menu:Draw()
       spec_name = PallasSettings.PallasSpecName or "?"
     end
     imgui.text_colored(0.4, 0.8, 1.0, 1.0,
-      string.format("%s — %s", class_name, spec_name))
+      string.format("%s - %s", class_name, spec_name))
     if Me.SpecId > 0 then
       imgui.same_line(0, 8)
       imgui.text_colored(0.5, 0.5, 0.5, 1.0,
@@ -128,17 +278,14 @@ function Menu:Draw()
     imgui.text_colored(0.6, 0.6, 0.6, 1.0, "Not logged in")
   end
 
-  imgui.separator()
-
-  -- ── Live status (last cast, target) ──────────────────────────────
+  -- Live status
   local now = os.clock()
   local last = Pallas._last_cast
   if last and last ~= "" then
     local age = now - (Pallas._last_cast_time or 0)
     if age < 5 then
-      local tgt_name = Pallas._last_cast_tgt or ""
       imgui.text_colored(0.3, 1.0, 0.4, 1.0,
-        string.format("Cast: %s -> %s", last, tgt_name))
+        string.format("Cast: %s -> %s", last, Pallas._last_cast_tgt or ""))
     end
   end
 
@@ -161,134 +308,50 @@ function Menu:Draw()
 
   imgui.separator()
 
-  -- ── Global options ──────────────────────────────────────────────
-  if imgui.collapsing_header("Combat") then
-    if PallasSettings.PallasAutoTarget == nil then PallasSettings.PallasAutoTarget = false end
-    local ch1, v1 = imgui.checkbox("Auto-target##pallas", PallasSettings.PallasAutoTarget)
-    if ch1 then PallasSettings.PallasAutoTarget = v1 end
+  -- ── Tab bar ─────────────────────────────────────────────────────
+  if imgui.begin_tab_bar("##pallas_tabs") then
 
-    if PallasSettings.PallasAttackOOC == nil then PallasSettings.PallasAttackOOC = false end
-    local ch2, v2 = imgui.checkbox("Attack out of combat##pallas", PallasSettings.PallasAttackOOC)
-    if ch2 then PallasSettings.PallasAttackOOC = v2 end
-
-    if PallasSettings.PallasAttackTarget == nil then PallasSettings.PallasAttackTarget = true end
-    local ch5, v5 = imgui.checkbox("Always attack current target##pallas", PallasSettings.PallasAttackTarget)
-    if ch5 then PallasSettings.PallasAttackTarget = v5 end
-  end
-
-  if imgui.collapsing_header("General") then
-    if PallasSettings.PallasEnabled == nil then PallasSettings.PallasEnabled = true end
-    local ch3, v3 = imgui.checkbox("Enabled##pallas_en", PallasSettings.PallasEnabled)
-    if ch3 then PallasSettings.PallasEnabled = v3 end
-
-    if PallasSettings.PallasESP == nil then PallasSettings.PallasESP = true end
-    local ch4, v4 = imgui.checkbox("Target ESP overlay##pallas_esp", PallasSettings.PallasESP)
-    if ch4 then PallasSettings.PallasESP = v4 end
-
-    if PallasSettings.PallasSpellDebug == nil then PallasSettings.PallasSpellDebug = false end
-    local chsd, vsd = imgui.checkbox("Spell Debug Window##pallas_spelldebug", PallasSettings.PallasSpellDebug)
-    if chsd then PallasSettings.PallasSpellDebug = vsd end
-
-    imgui.separator()
-    
-    -- Pause key selector
-    local current_key = PallasSettings.PallasPauseKey or 580
-    local key_name = ImGuiKeys.get_key_name(current_key)
-    imgui.text("Pause Toggle Key: " .. key_name)
-    
-    if imgui.button("Change Key##pause_key") then
-      -- Start key capture mode
-      Menu.CapturingKey = true
-      Menu.CaptureStartTime = os.clock()
+    -- Settings tab
+    local sv = imgui.begin_tab_item("Settings##ptab_settings")
+    if sv then
+      imgui.begin_child("##settings_scroll", 0, 0, false)
+      draw_tab_settings()
+      imgui.end_child()
+      imgui.end_tab_item()
     end
-    
-    -- Key capture mode
-    if Menu.CapturingKey then
-      imgui.text("Press any key to set as pause toggle...")
-      imgui.text("(ESC to cancel)")
-      
-      -- Auto-cancel after 5 seconds
-      if os.clock() - (Menu.CaptureStartTime or 0) > 5 then
-        Menu.CapturingKey = false
-        imgui.text("Key capture timed out")
-      end
-      
-      -- Check for key presses
-      for _, key in ipairs(ImGuiKeys.COMMON_KEYS) do
-        if imgui.is_key_pressed(key) then
-          if key == 526 then -- ESC
-            Menu.CapturingKey = false
-          else
-            PallasSettings.PallasPauseKey = key
-            Menu.CapturingKey = false
-            print("[Pallas] Pause key set to: " .. ImGuiKeys.get_key_name(key))
-          end
-          break
+
+    -- Interrupts tab
+    local iv = imgui.begin_tab_item("Interrupts##ptab_int")
+    if iv then
+      imgui.begin_child("##int_scroll", 0, 0, false)
+      draw_tab_interrupts()
+      imgui.end_child()
+      imgui.end_tab_item()
+    end
+
+    -- Dispels tab
+    local dv = imgui.begin_tab_item("Dispels##ptab_disp")
+    if dv then
+      imgui.begin_child("##disp_scroll", 0, 0, false)
+      draw_tab_dispels()
+      imgui.end_child()
+      imgui.end_tab_item()
+    end
+
+    -- Per-behavior tabs
+    for idx, opts in ipairs(self.OptionMenus) do
+      local bv = imgui.begin_tab_item(opts.Name .. "##ptab_beh" .. idx)
+      if bv then
+        imgui.begin_child("##beh_scroll" .. idx, 0, 0, false)
+        for _, w in ipairs(opts.Widgets) do
+          draw_widget(w)
         end
+        imgui.end_child()
+        imgui.end_tab_item()
       end
     end
-  end
 
-  if imgui.collapsing_header("Interrupts") then
-    -- Interrupt mode combobox
-    if PallasSettings.PallasInterruptMode == nil then PallasSettings.PallasInterruptMode = 0 end
-    local mode_options = { "All", "Whitelist", "None" }
-    local cur_mode = PallasSettings.PallasInterruptMode or 0
-    local preview = mode_options[cur_mode + 1] or "All"
-    if imgui.begin_combo("Interrupt Mode##pallas_interrupt_mode", preview) then
-      for i, opt in ipairs(mode_options) do
-        local sel = (i - 1 == cur_mode)
-        if imgui.selectable(opt .. "##interrupt_mode" .. i, sel) then
-          PallasSettings.PallasInterruptMode = i - 1
-        end
-      end
-      imgui.end_combo()
-    end
-
-    -- Advanced timing options
-    if PallasSettings.PallasInterruptTiming == nil then PallasSettings.PallasInterruptTiming = false end
-    local timing_changed, timing_val = imgui.checkbox("Enable Advanced Timing##pallas_timing", PallasSettings.PallasInterruptTiming)
-    if timing_changed then PallasSettings.PallasInterruptTiming = timing_val end
-
-    if PallasSettings.PallasInterruptTiming then
-      if PallasSettings.PallasInterruptPercentage == nil then PallasSettings.PallasInterruptPercentage = 80 end
-      local pct_changed, pct_val = imgui.slider_int("Interrupt at %##pallas_interrupt_pct", PallasSettings.PallasInterruptPercentage, 10, 95)
-      if pct_changed then PallasSettings.PallasInterruptPercentage = pct_val end
-      imgui.text("Interrupts casts when >=" .. (PallasSettings.PallasInterruptPercentage or 80) .. "% elapsed")
-      imgui.text("Channels interrupted immediately")
-    end
-  end
-
-  -- ── Spec selector (manual override) ────────────────────────────
-  if Me and Me._spec_options then
-    if imgui.collapsing_header("Specialization") then
-      if Me.SpecName and Me.SpecName ~= "" then
-        imgui.text_colored(0.3, 1.0, 0.4, 1.0,
-          "Detected: " .. Me.SpecName)
-        imgui.text_colored(0.5, 0.5, 0.5, 1.0,
-          "Override below if the game detects incorrectly:")
-      end
-      local cur = PallasSettings.PallasSpecIdx or 0
-      local preview = Me._spec_options[cur + 1] or "(auto)"
-      if imgui.begin_combo("Spec##pallas_spec", preview) then
-        for i, name in ipairs(Me._spec_options) do
-          if imgui.selectable(name .. "##spec" .. i, (i - 1) == cur) then
-            PallasSettings.PallasSpecIdx = i - 1
-            PallasSettings.PallasSpecName = name
-          end
-        end
-        imgui.end_combo()
-      end
-    end
-  end
-
-  -- ── Per-behavior option menus ───────────────────────────────────
-  for _, opts in ipairs(self.OptionMenus) do
-    if imgui.collapsing_header(opts.Name) then
-      for _, w in ipairs(opts.Widgets) do
-        draw_widget(w)
-      end
-    end
+    imgui.end_tab_bar()
   end
 
   imgui.end_window()

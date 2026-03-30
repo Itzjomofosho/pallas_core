@@ -32,7 +32,6 @@ local options = {
         { type = "slider",   uid = "MWTFTUpliftHP",         text = "TFT Uplift - Health %",          default = 80,  min = 0,                                            max = 100 },
 
         { type = "header",   text = "Utility" },
-        { type = "checkbox", uid = "MWDetox",               text = "Detox",                          default = true },
         { type = "checkbox", uid = "MWStopCasting",         text = "Cancel overheals",               default = true },
         { type = "checkbox", uid = "MWLegacyOfTheEmperor",  text = "Legacy of the Emperor",          default = true },
         { type = "combobox", uid = "MWTalentTier4",         text = "Tier 4 Talent",                  default = 0,   options = { "Chi Wave", "Zen Sphere", "Chi Burst" } },
@@ -328,10 +327,8 @@ local function DoRotation()
     end
 
     -- ── Detox ───────────────────────────────────────────────────────
-    if PallasSettings.MWDetox ~= false then
-        if Spell.Detox:Dispel(true, { DispelType.Magic, DispelType.Poison, DispelType.Disease }) then
-            return
-        end
+    if Spell.Detox:Dispel(true, { DispelType.Magic, DispelType.Poison, DispelType.Disease }) then
+        return
     end
 
     -- ── Resurrect current target if dead ────────────────────────────

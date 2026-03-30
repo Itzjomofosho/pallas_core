@@ -579,6 +579,7 @@ function SpellWrapper:CastAtPosLuaPath(x_or_entity, y, z)
 end
 
 --- Dispel wrapper: scans friendly or enemy targets for dispellable auras.
+--- Respects PallasDispelMode: 0=All, 1=Whitelist (data/dispels.lua), 2=None.
 ---
 --- Friendly (remove harmful debuffs from allies):
 ---   Spell.Cleanse:Dispel(true, {DispelType.Poison, DispelType.Magic})
@@ -591,20 +592,35 @@ end
 --- @param options table|nil    Optional: {maxRange=30, prioritizeTank=true, prioritizeSelf=true}
 --- Returns true if a dispel was cast, false otherwise.
 function SpellWrapper:Dispel(friendly, dispel_types, options)
+  local mode = PallasSettings.PallasDispelMode or 0
+  if mode == 2 then return false end -- None
+
   if not dispel_types or #dispel_types == 0 then return false end
   if not self:IsReady() then return false end
+
+  -- Load whitelist for filtering
+  local whitelist = nil
+  if mode == 1 then
+    local ok, data = pcall(require, "data.dispels")
+    if ok and data then
+      whitelist = {}
+      for _, id in ipairs(data) do
+        if type(id) == "number" then whitelist[id] = true end
+      end
+    end
+  end
 
   options = options or {}
   local max_range = options.maxRange or 30
 
   if friendly then
-    return self:_DispelFriendly(dispel_types, max_range, options)
+    return self:_DispelFriendly(dispel_types, max_range, options, whitelist)
   else
-    return self:_DispelOffensive(dispel_types, max_range, options)
+    return self:_DispelOffensive(dispel_types, max_range, options, whitelist)
   end
 end
 
-function SpellWrapper:_DispelFriendly(dispel_types, max_range, options)
+function SpellWrapper:_DispelFriendly(dispel_types, max_range, options, whitelist)
   local prioritize_tank = options.prioritizeTank ~= false
   local prioritize_self = options.prioritizeSelf ~= false
 
@@ -613,7 +629,7 @@ function SpellWrapper:_DispelFriendly(dispel_types, max_range, options)
 
   for _, entry in ipairs(friends) do
     local u = entry.Unit
-    if u and not u.IsDead and u:HasDispellableDebuff(dispel_types) then
+    if u and not u.IsDead and u:HasDispellableDebuff(dispel_types, whitelist) then
       local d = Me and Me:GetDistance(u) or 999
       if d <= max_range and self:InRange(u) then
         local priority = 100 - u.HealthPct
@@ -625,7 +641,7 @@ function SpellWrapper:_DispelFriendly(dispel_types, max_range, options)
   end
 
   -- Also check self (Me) if not already in the list
-  if Me and not Me.IsDead and Me:HasDispellableDebuff(dispel_types) then
+  if Me and not Me.IsDead and Me:HasDispellableDebuff(dispel_types, whitelist) then
     local dominated = false
     for _, c in ipairs(candidates) do
       if c.unit.Guid == Me.Guid then dominated = true; break end
@@ -643,7 +659,7 @@ function SpellWrapper:_DispelFriendly(dispel_types, max_range, options)
   return self:CastEx(candidates[1].unit, { skipFacing = true })
 end
 
-function SpellWrapper:_DispelOffensive(dispel_types, max_range, options)
+function SpellWrapper:_DispelOffensive(dispel_types, max_range, options, whitelist)
   local targets = Combat and Combat.Targets or {}
   local current_target = Me and Me.Target or nil
   local current_target_guid = current_target and not current_target.IsDead and current_target.Guid or nil
@@ -653,7 +669,7 @@ function SpellWrapper:_DispelOffensive(dispel_types, max_range, options)
 
   for _, target in ipairs(targets) do
     if not target or target.IsDead then goto continue end
-    if not target:HasDispellableBuff(dispel_types) then goto continue end
+    if not target:HasDispellableBuff(dispel_types, whitelist) then goto continue end
 
     local distance = Me:GetDistance(target)
     if distance > max_range then goto continue end
@@ -980,7 +996,9 @@ function Spell:DrawDebugWindow()
 
   imgui.separator()
 
-  -- ── Entries (newest first, grouped by tick) ─────────────────────
+  -- ── Scrollable entries (newest first, grouped by tick) ──────────
+  imgui.begin_child("##sd_scroll", 0, 0, false)
+
   local total = math.min(Pallas._spell_debug_idx, SPELL_DEBUG_MAX)
   local head = ((Pallas._spell_debug_idx - 1) % SPELL_DEBUG_MAX) + 1
   local shown = 0
@@ -1030,7 +1048,6 @@ function Spell:DrawDebugWindow()
       end
 
       shown = shown + 1
-      if shown >= 50 then break end
     end
   end
 
@@ -1039,6 +1056,7 @@ function Spell:DrawDebugWindow()
       "No entries match current filters")
   end
 
+  imgui.end_child()
   imgui.end_window()
 end
 

@@ -34,7 +34,6 @@ local options = {
         { type = "checkbox", uid = "DiscUseShadowfiend",    text = "Use Shadowfiend/Mindbender",   default = true },
 
         { type = "header",   text = "Utility" },
-        { type = "checkbox", uid = "DiscPurify",            text = "Purify",                       default = true },
         { type = "checkbox", uid = "DiscStopCasting",       text = "Cancel overheals",             default = true },
         { type = "checkbox", uid = "DiscPWFort",             text = "Power Word: Fortitude",        default = true },
         { type = "checkbox", uid = "DiscAngelicFeather",   text = "Angelic Feather",              default = true },
@@ -325,10 +324,8 @@ local function DoRotation()
     end
 
     -- ── Purify ───────────────────────────────────────────────────────
-    if PallasSettings.DiscPurify ~= false then
-        if Spell.Purify:Dispel(true, { DispelType.Magic, DispelType.Disease }) then
-            return
-        end
+    if Spell.Purify:Dispel(true, { DispelType.Magic, DispelType.Disease }) then
+        return
     end
 
     -- Resurrect current target if dead

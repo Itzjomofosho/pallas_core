@@ -18,7 +18,6 @@ local options = {
 
         { type = "header",   text = "Utility" },
         { type = "combobox", uid = "RestoShamanEarthShieldTarget", text = "Earth Shield",                    default = 0,   options = { "Tank 1", "Tank 2", "Off" } },
-        { type = "checkbox", uid = "RestoShamanPurifySpirit",      text = "Purify Spirit",                   default = true },
         { type = "combobox", uid = "RestoShamanWeaponImbue",       text = "Weapon Imbue",                    default = 0,   options = { "Flametongue", "Earthliving" } },
         { type = "combobox", uid = "RestoShamanShieldBuff",        text = "Shield Buff",                     default = 0,   options = { "Water Shield", "Lightning Shield" } },
     },
@@ -164,10 +163,8 @@ local function DoRotation()
         end
     end
 
-    if PallasSettings.RestoShamanPurifySpirit ~= false then
-        if Spell.PurifySpirit:Dispel(true, { DispelType.Magic, DispelType.Curse }) then
-            return
-        end
+    if Spell.PurifySpirit:Dispel(true, { DispelType.Magic, DispelType.Curse }) then
+        return
     end
 
     -- Resurrect current target if dead

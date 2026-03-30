@@ -71,6 +71,7 @@ local CORE_DEFAULTS = {
   PallasInterruptMode = 0, -- 0=All (filtered by interrupts.lua), 1=Whitelist (same as All), 2=None
   PallasInterruptTiming = false, -- Enable advanced timing logic
   PallasInterruptPercentage = 80, -- Interrupt when cast is <= 80% complete
+  PallasDispelMode   = 0, -- 0=All, 1=Whitelist (data/dispels.lua), 2=None
   PallasPaused       = false, -- Behavior pause state
   PallasPauseKey     = 580, -- ImGuiKey_F9 default
   PallasSpellDebug   = false, -- Show spell debug window
