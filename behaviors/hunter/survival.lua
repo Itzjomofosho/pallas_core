@@ -65,8 +65,6 @@ local options = {
       text = "Use Counter Shot",       default = true },
 
     { type = "text",     text = "=== Utility ===" },
-    { type = "checkbox", uid = "SVAutoAspects",
-      text = "Auto Aspect (Iron Hawk in combat, Pack OOC)", default = true },
     { type = "checkbox", uid = "SVUseMastersCall",
       text = "Use Master's Call (root/snare removal)", default = true },
     { type = "checkbox", uid = "SVUseMisdirection",
@@ -195,31 +193,17 @@ local function CastTier5Talent(target)
   return false
 end
 
--- ── Aspect management + Hunter's Mark (Extra behavior) ──────────
-
-local function SurvivalExtra()
-  -- Aspect switching
-  if not PallasSettings.SVAutoAspects then return end
-
-  local anyone_in_combat = false
-  for _, v in ipairs(Heal.PriorityList or {}) do
-    if v.Unit and not v.Unit.IsDead and v.Unit.InCombat then
-      anyone_in_combat = true
-      break
-    end
-  end
-
-  if anyone_in_combat then
-    if not Me:HasAura("Aspect of the Iron Hawk") and not Me:HasAura("Aspect of the Hawk") then
-      if not Spell.AspectOfTheIronHawk:CastEx(Me) then
-        Spell.AspectOfTheHawk:CastEx(Me)
+local function BestMultishotTarget(range)
+  local best, best_count = nil, 0
+  for _, unit in ipairs(Combat.Targets) do
+    if not unit.IsDead then
+      local count = Combat:GetTargetsAround(unit, range)
+      if count > best_count then
+        best, best_count = unit, count
       end
     end
-  else
-    if not Me:HasAura("Aspect of the Pack") then
-      Spell.AspectOfThePack:CastEx(Me)
-    end
   end
+  return best
 end
 
 -- ── Main rotation ──────────────────────────────────────────────
@@ -227,6 +211,18 @@ end
 local function SurvivalCombat()
 
   local target = Combat.BestTarget
+
+  -- Aspect switching — Hawk in combat, Pack out of combat
+  if #Combat.Targets > 0 then
+    if not Me:HasAura("Aspect of the Hawk") and not Me:HasAura("Aspect of the Iron Hawk") then
+      Spell.AspectOfTheHawk:CastEx(Me)
+    end
+  else
+    if not Me:HasAura("Aspect of the Pack") then
+      Spell.AspectOfThePack:CastEx(Me)
+    end
+  end
+
   if not target then return end
 
   -- Mend Pet — auto-heal pet when low
@@ -346,7 +342,8 @@ local function SurvivalCombat()
       if es_cd < 1.5 and Me.Power < 25 then hold_ms = true end
       if ba_cd < 2 and Me.Power < 35 then hold_ms = true end
       if not hold_ms then
-        if Spell.Multishot:CastEx(target) then return end
+        local ms_target = BestMultishotTarget(PallasSettings.SVAoeRange or 10) or target
+        if Spell.Multishot:CastEx(ms_target) then return end
       end
     end
 
@@ -363,11 +360,11 @@ local function SurvivalCombat()
     -- Stampede (if known — level 87+)
     if PallasSettings.SVUseStampede and Spell.Stampede and Spell.Stampede.IsKnown then
       if PallasSettings.SVSyncCooldowns then
-        if Me:HasAura("Rapid Fire") or HasHeroism() or target.HealthPct < 5 then
-          if Spell.Stampede:CastEx(Me) then return end
+        if Me:HasAura("Rapid Fire") or HasHeroism() then
+          if Spell.Stampede:CastEx(target) then return end
         end
       else
-        if Spell.Stampede:CastEx(Me) then return end
+        if Spell.Stampede:CastEx(target) then return end
       end
     end
 
@@ -376,7 +373,7 @@ local function SurvivalCombat()
     if es_cd < 1.5 and Me.Power > 25 then skip_cobra = true end
     if ba_cd < 1.5 and Me.Power > 35 then skip_cobra = true end
     if not skip_cobra and Me.Power < (PallasSettings.SVCobraShotFocusCap or 75) then
-      Spell.CobraShot:CastEx(target)
+      Spell.CobraShot:CastEx(target, { skipMoving = true })
     end
     return
   end
@@ -406,8 +403,16 @@ local function SurvivalCombat()
     -- Tier 5 talent (AMoC / Lynx Rush / Blink Strike)
     if CastTier5Talent(target) then return end
 
-    -- Explosive Shot — regular (non-L&L)
-    if Spell.ExplosiveShot:CastEx(target) then return end
+    -- Explosive Shot — regular (non-L&L, spread to target without DoT)
+    if DebuffRemaining(target, "Explosive Shot") < 1 then
+      if Spell.ExplosiveShot:CastEx(target) then return end
+    else
+      for _, es_unit in ipairs(Combat.Targets) do
+        if not es_unit.IsDead and DebuffRemaining(es_unit, "Explosive Shot") < 1 then
+          if Spell.ExplosiveShot:CastEx(es_unit) then return end
+        end
+      end
+    end
 
     -- Explosive Trap
     if not target:IsMoving() then
@@ -416,7 +421,8 @@ local function SurvivalCombat()
 
     -- Multi-Shot — weave with surplus focus only (cleave, not full AoE)
     if Me:HasAura("Thrill of the Hunt") or Me.Power >= 55 then
-      if Spell.Multishot:CastEx(target) then return end
+      local ms_target = BestMultishotTarget(PallasSettings.SVAoeRange or 10) or target
+      if Spell.Multishot:CastEx(ms_target) then return end
     end
 
     -- Dire Beast
@@ -430,11 +436,11 @@ local function SurvivalCombat()
     -- Stampede (if known)
     if PallasSettings.SVUseStampede and Spell.Stampede and Spell.Stampede.IsKnown then
       if PallasSettings.SVSyncCooldowns then
-        if Me:HasAura("Rapid Fire") or HasHeroism() or target.HealthPct < 5 then
-          if Spell.Stampede:CastEx(Me) then return end
+        if Me:HasAura("Rapid Fire") or HasHeroism() then
+          if Spell.Stampede:CastEx(target) then return end
         end
       else
-        if Spell.Stampede:CastEx(Me) then return end
+        if Spell.Stampede:CastEx(target) then return end
       end
     end
 
@@ -467,7 +473,7 @@ local function SurvivalCombat()
     if es_cd < 1.5 and Me.Power > 25 then skip_cobra = true end
     if ba_cd < 1.5 and Me.Power > 35 then skip_cobra = true end
     if not skip_cobra and Me.Power < (PallasSettings.SVCobraShotFocusCap or 75) then
-      Spell.CobraShot:CastEx(target)
+      Spell.CobraShot:CastEx(target, { skipMoving = true })
     end
     return
   end
@@ -476,7 +482,18 @@ local function SurvivalCombat()
   -- ── Single-target priority ───────────────────────────────
   -- ══════════════════════════════════════════════════════════
 
-  -- 1. Kill Shot (execute — scan all targets ≤20% HP)
+  -- 1. Stampede (use on CD — highest priority)
+  if PallasSettings.SVUseStampede and Spell.Stampede and Spell.Stampede.IsKnown then
+    if PallasSettings.SVSyncCooldowns then
+      if Me:HasAura("Rapid Fire") or HasHeroism() then
+        if Spell.Stampede:CastEx(target) then return end
+      end
+    else
+      if Spell.Stampede:CastEx(target) then return end
+    end
+  end
+
+  -- 2. Kill Shot (execute — scan all targets ≤20% HP)
   for _, ks_target in ipairs(Combat.Targets) do
     if not ks_target.IsDead and ks_target.HealthPct <= 20 then
       if Spell.KillShot:CastEx(ks_target) then return end
@@ -496,8 +513,16 @@ local function SurvivalCombat()
   -- 4. Tier 5 talent (AMoC / Lynx Rush / Blink Strike)
   if CastTier5Talent(target) then return end
 
-  -- 5. Explosive Shot — regular (on CD, after Black Arrow for uptime priority)
-  if Spell.ExplosiveShot:CastEx(target) then return end
+  -- 5. Explosive Shot — regular (on CD, spread to target without DoT)
+  if DebuffRemaining(target, "Explosive Shot") < 1 then
+    if Spell.ExplosiveShot:CastEx(target) then return end
+  else
+    for _, es_unit in ipairs(Combat.Targets) do
+      if not es_unit.IsDead and DebuffRemaining(es_unit, "Explosive Shot") < 1 then
+        if Spell.ExplosiveShot:CastEx(es_unit) then return end
+      end
+    end
+  end
 
   -- 6. Explosive Trap (only if target is stationary)
   if not target:IsMoving() then
@@ -511,17 +536,6 @@ local function SurvivalCombat()
   --    Cobra Shot (filler) extends SS duration, so don't waste focus recasting
   if not target:HasAura("Serpent Sting") then
     if Spell.SerpentSting:CastEx(target) then return end
-  end
-
-  -- 9. Stampede (if known — level 87+)
-  if PallasSettings.SVUseStampede and Spell.Stampede and Spell.Stampede.IsKnown then
-    if PallasSettings.SVSyncCooldowns then
-      if Me:HasAura("Rapid Fire") or HasHeroism() or target.HealthPct < 5 then
-        if Spell.Stampede:CastEx(Me) then return end
-      end
-    else
-      if Spell.Stampede:CastEx(Me) then return end
-    end
   end
 
   -- 10. Arcane Shot — smart focus conservation
@@ -558,7 +572,7 @@ local function SurvivalCombat()
   if es_cd < 1.5 and Me.Power > 25 then skip_cobra = true end
   if ba_cd < 1.5 and Me.Power > 35 then skip_cobra = true end
   if not skip_cobra and Me.Power < (PallasSettings.SVCobraShotFocusCap or 75) then
-    Spell.CobraShot:CastEx(target)
+    Spell.CobraShot:CastEx(target, { skipMoving = true })
   end
 end
 
@@ -566,7 +580,6 @@ end
 
 local behaviors = {
   [BehaviorType.Combat] = SurvivalCombat,
-  [BehaviorType.Extra]  = SurvivalExtra,
 }
 
 return { Options = options, Behaviors = behaviors }
