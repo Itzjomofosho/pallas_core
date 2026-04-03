@@ -212,17 +212,6 @@ local function SurvivalCombat()
 
   local target = Combat.BestTarget
 
-  -- Aspect switching — Hawk in combat, Pack out of combat
-  if #Combat.Targets > 0 then
-    if not Me:HasAura("Aspect of the Hawk") and not Me:HasAura("Aspect of the Iron Hawk") then
-      Spell.AspectOfTheHawk:CastEx(Me)
-    end
-  else
-    if not Me:HasAura("Aspect of the Pack") then
-      Spell.AspectOfThePack:CastEx(Me)
-    end
-  end
-
   if not target then return end
 
   -- Mend Pet — auto-heal pet when low

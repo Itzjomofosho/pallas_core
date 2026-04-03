@@ -11,7 +11,7 @@ local function DoCombat()
 	if Me:IsCastingOrChanneling() then return end
 
 	-- Battle Shout — maintain buff (no target needed)
-	if not Me:HasAura("Battle Shout") and Spell.BattleShout:CastEx(Me) then return end
+	if not Me:HasAura("Battle Shout") and not Me:IsMounted() and Spell.BattleShout:CastEx(Me) then return end
 
 	local target = Tank.BestTarget or Combat.BestTarget
 	if not target then return end
@@ -23,6 +23,11 @@ local function DoCombat()
 	-- Shield Block — off-GCD, use when a mob is in melee range
 	if not Me:HasAura("Shield Block") and Combat:GetEnemiesWithinDistance(4) >= 1 then
 		Spell.ShieldBlock:CastEx(Me)
+	end
+
+	-- Shield Wall — off-GCD, major defensive when taking heavy damage
+	if Me.HealthPct < 40 and not Me:HasAura("Shield Wall") then
+		Spell.ShieldWall:CastEx(Me)
 	end
 
 	-- Last Stand — off-GCD, emergency defensive
